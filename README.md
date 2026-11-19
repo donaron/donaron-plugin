@@ -14,7 +14,7 @@ Documentation explicitly separates implemented behavior from planned phases:
 | **Phase 4** | Harness adapter contract + Antigravity and Claude Code exporters & hook payload translators (`@donaron/adapters`)                         | **Implemented** |
 | **Phase 5** | Full `donaron` CLI (`doctor`, `plugin`, `export`, `adapter`, `workflow`, `gate`, `hook`) (`@donaron/cli`)                                 | **Implemented** |
 | **Phase 6** | Flagship Node + React plugin bundle (`plugins/donaron-dev`) + dual export & hook smoke verification                                       | **Implemented** |
-| **Phase 7** | Security hardening, self-gated Gates 01–05 verification, and complete reference docs                                                      | Planned         |
+| **Phase 7** | Security hardening, self-gated Gates 01–05 verification, and complete reference docs                                                      | **Implemented** |
 
 ## Workspace Layout
 
@@ -80,6 +80,10 @@ pnpm clean          # remove dist/, coverage/, and *.tsbuildinfo artifacts
 - [Gates and Workflows (`@donaron/gates`)](docs/gates-and-workflows.md)
 - [Harness Adapters (`@donaron/adapters`)](docs/harness-adapters.md)
 - [CLI & Hook Bridge Reference (`@donaron/cli`)](docs/cli-reference.md)
+- [Installation, Upgrade & Uninstall Guide](docs/installation.md)
+- [Security Architecture & Trust Boundaries](docs/security.md)
+- [Troubleshooting Guide](docs/troubleshooting.md)
+- [Contributing Guide](CONTRIBUTING.md)
 - [Approved System Design Document](docs/superpowers/specs/2026-11-19-donaron-plugin-design.md)
 - [Phase 2 Core Engine Implementation Plan](docs/superpowers/plans/2026-11-19-phase-2-core-engine.md)
 - [Phase 3 Gate Engine Implementation Plan](docs/superpowers/plans/2026-11-19-phase-3-gate-engine.md)
