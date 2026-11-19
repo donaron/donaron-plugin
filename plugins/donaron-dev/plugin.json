@@ -1,0 +1,60 @@
+{
+  "$schema": "https://donaron.dev/schemas/donaron-plugin.v1.schema.json",
+  "manifestVersion": "1",
+  "id": "donaron-dev",
+  "name": "donaron-dev",
+  "displayName": "DonAron Dev (Node.js + React)",
+  "version": "0.1.0",
+  "description": "Personal multi-harness Node.js + React strict engineering workflow plugin with 5 mandatory gates, progressive skills, and specialized 15-agent roster.",
+  "author": {
+    "name": "Jay-R Sarino"
+  },
+  "license": "MIT",
+  "suggestedPrompts": [
+    "Start a strict DonAron workflow for a new Node.js + React feature",
+    "Run Gate 01-05 checks and show current workflow status",
+    "Perform a security and OWASP review on this Node + React repository"
+  ],
+  "compatibility": {
+    "donaronPlugin": ">=0.1.0",
+    "harnesses": {
+      "antigravity": ">=1.0.0",
+      "claude-code": ">=1.0.0"
+    }
+  },
+  "permissions": ["fs:read", "fs:write", "cmd:exec"],
+  "capabilities": {
+    "skills": [
+      "skills/node-react-planning",
+      "skills/node-react-implement",
+      "skills/node-react-testing",
+      "skills/security-review",
+      "skills/code-review",
+      "skills/debugging"
+    ],
+    "agents": [
+      "agents/requirements-gatherer.md",
+      "agents/intake-reviewer.md",
+      "agents/solutions-architect.md",
+      "agents/planner.md",
+      "agents/explore.md",
+      "agents/researcher.md",
+      "agents/ask.md",
+      "agents/developer.md",
+      "agents/developer-tester.md",
+      "agents/devops.md",
+      "agents/worker.md",
+      "agents/general-purpose.md",
+      "agents/reviewer.md",
+      "agents/code-reviewer.md",
+      "agents/qa.md"
+    ],
+    "rules": [
+      "rules/routing.md",
+      "rules/security.md",
+      "rules/development.md",
+      "rules/writing.md"
+    ],
+    "hooks": ["hooks/hooks.json"]
+  }
+}

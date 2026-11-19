@@ -1,0 +1,36 @@
+{
+  "hooks": [
+    {
+      "id": "donaron-session-context",
+      "event": "SessionStart",
+      "handler": "session-context",
+      "timeoutSec": 10,
+      "failurePolicy": "warn",
+      "enabled": true
+    },
+    {
+      "id": "donaron-policy-guard",
+      "event": "PreToolUse",
+      "handler": "policy-guard",
+      "timeoutSec": 10,
+      "failurePolicy": "fail_closed",
+      "enabled": true
+    },
+    {
+      "id": "donaron-stale-tracker",
+      "event": "PostToolUse",
+      "handler": "stale-tracker",
+      "timeoutSec": 10,
+      "failurePolicy": "warn",
+      "enabled": true
+    },
+    {
+      "id": "donaron-gate-stop-guard",
+      "event": "Stop",
+      "handler": "gate-stop-guard",
+      "timeoutSec": 15,
+      "failurePolicy": "fail_closed",
+      "enabled": true
+    }
+  ]
+}
