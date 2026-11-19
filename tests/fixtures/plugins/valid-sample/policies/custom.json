@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {
+      "id": "custom-allow-docs",
+      "description": "Allow docs read",
+      "priority": 10,
+      "effect": "ALLOW",
+      "actions": ["fs:read"],
+      "pathPatterns": ["^docs/.*"]
+    }
+  ]
+}

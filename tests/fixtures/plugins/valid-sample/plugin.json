@@ -1,0 +1,20 @@
+{
+  "$schema": "https://donaron.dev/schemas/donaron-plugin.v1.schema.json",
+  "manifestVersion": "1",
+  "id": "valid-sample",
+  "name": "valid-sample",
+  "displayName": "Valid Sample Plugin",
+  "version": "1.0.0",
+  "description": "Valid sample plugin fixture for safe discovery, bundle loading, and policy checks.",
+  "compatibility": {
+    "donaronPlugin": "^0.1.0"
+  },
+  "permissions": ["fs:read"],
+  "capabilities": {
+    "skills": ["skills/sample-skill"],
+    "agents": ["agents/developer.md"],
+    "rules": ["rules/security.md"],
+    "hooks": ["hooks/hooks.json"],
+    "policies": ["policies/custom.json"]
+  }
+}

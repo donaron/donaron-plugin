@@ -1,0 +1,13 @@
+{
+  "hooks": [
+    {
+      "id": "sample-policy-guard",
+      "event": "PreToolUse",
+      "handler": "policy-guard",
+      "matcher": "write_file",
+      "timeoutSec": 10,
+      "failurePolicy": "fail_closed",
+      "enabled": true
+    }
+  ]
+}

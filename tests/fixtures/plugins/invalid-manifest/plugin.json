@@ -1,0 +1,12 @@
+{
+  "manifestVersion": "1",
+  "id": "Invalid_ID",
+  "name": "",
+  "version": "not-semver",
+  "description": "Invalid manifest fixture for rejection tests.",
+  "compatibility": {
+    "donaronPlugin": "^0.1.0"
+  },
+  "permissions": ["fs:read"],
+  "capabilities": {}
+}
