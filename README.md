@@ -12,7 +12,7 @@ Documentation explicitly separates implemented behavior from planned phases:
 | **Phase 2** | Universal manifest v1 schema (Ajv), path-safe loaders, deterministic fail-closed policy engine, secret-redacting logger (`@donaron/core`) | **Implemented** |
 | **Phase 3** | Scoped `planHash`/`codeHash` Evidence Store, Gates 01–05, `strict` default workflow state machine (`@donaron/gates`)                      | **Implemented** |
 | **Phase 4** | Harness adapter contract + Antigravity and Claude Code exporters & hook payload translators (`@donaron/adapters`)                         | **Implemented** |
-| **Phase 5** | Full `donaron` CLI (`doctor`, `plugin`, `export`, `adapter`, `workflow`, `gate`, `hook`) (`@donaron/cli`)                                 | Planned         |
+| **Phase 5** | Full `donaron` CLI (`doctor`, `plugin`, `export`, `adapter`, `workflow`, `gate`, `hook`) (`@donaron/cli`)                                 | **Implemented** |
 | **Phase 6** | Flagship Node + React plugin bundle (`plugins/donaron-dev`) + live Antigravity smoke verification                                         | Planned         |
 | **Phase 7** | Security hardening, self-gated Gates 01–05 verification, and complete reference docs                                                      | Planned         |
 
