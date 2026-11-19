@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { WorkflowOrchestrator } from '@donaron/gates';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -12,6 +12,7 @@ import {
   parseCliArgs,
 } from '../args.js';
 import { handleAdapterCommand, handleDoctorCommand } from './doctor-and-adapter.js';
+import { handleExportCommand, handlePluginCommand } from './plugin-and-export.js';
 
 const tempDirs: string[] = [];
 
@@ -132,5 +133,111 @@ describe('CLI Arg Parser, Doctor, and Adapter Capabilities Commands', () => {
 
     const badSubcmd = handleAdapterCommand(parseCliArgs(['adapter', 'unknown']));
     expect(badSubcmd.exitCode).toBe(1);
+  });
+
+  it('runs donaron plugin validate|info|list|install|uninstall and donaron export with permission confirmation enforcement', () => {
+    const sampleDir = resolve(
+      import.meta.dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'tests',
+      'fixtures',
+      'plugins',
+      'valid-sample',
+    );
+    const invalidDir = resolve(
+      import.meta.dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'tests',
+      'fixtures',
+      'plugins',
+      'invalid-manifest',
+    );
+
+    const root = createTempDir();
+    const ctx = {
+      cwd: root,
+      registryFilePath: join(root, 'registry.json'),
+      antigravityPluginsDir: join(root, 'agy-plugins'),
+      claudePluginsDir: join(root, 'cc-plugins'),
+      cliEntryPath: 'C:/donaron/apps/cli/dist/cli.js',
+    };
+
+    // 1. plugin validate
+    const valOk = handlePluginCommand(
+      parseCliArgs(['plugin', 'validate', sampleDir, '--json']),
+      ctx,
+    );
+    expect(valOk.exitCode).toBe(0);
+    expect((JSON.parse(valOk.stdout) as { ok: boolean }).ok).toBe(true);
+
+    const valFail = handlePluginCommand(
+      parseCliArgs(['plugin', 'validate', invalidDir, '--json']),
+      ctx,
+    );
+    expect(valFail.exitCode).toBe(1);
+
+    // 2. plugin info
+    const infoRes = handlePluginCommand(parseCliArgs(['plugin', 'info', sampleDir, '--json']), ctx);
+    expect(infoRes.exitCode).toBe(0);
+    const infoPayload = JSON.parse(infoRes.stdout) as {
+      ok: boolean;
+      name: string;
+      permissions: string[];
+    };
+    expect(infoPayload.ok).toBe(true);
+    expect(infoPayload.permissions.length).toBeGreaterThan(0);
+
+    // 3. export --target antigravity|claude-code --out <dir>
+    const agyOut = join(root, 'export-agy');
+    const expRes = handleExportCommand(
+      parseCliArgs(['export', sampleDir, '--target', 'antigravity', '--out', agyOut, '--json']),
+      ctx,
+    );
+    expect(expRes.exitCode).toBe(0);
+    expect(existsSync(join(agyOut, 'plugin.json'))).toBe(true);
+    expect(existsSync(join(agyOut, 'hooks.json'))).toBe(true);
+
+    // 4. plugin install without --yes or confirmed fails closed when permissions are requested!
+    const unconfirmedInstall = handlePluginCommand(
+      parseCliArgs(['plugin', 'install', sampleDir, '--target', 'antigravity', '--json']),
+      ctx,
+    );
+    expect(unconfirmedInstall.exitCode).toBe(1);
+    expect(unconfirmedInstall.stdout).toContain('INSTALL_CONFIRMATION_REQUIRED');
+
+    // 5. plugin install with --yes --target all succeeds and registers both harnesses
+    const installAll = handlePluginCommand(
+      parseCliArgs(['plugin', 'install', sampleDir, '--target', 'all', '--yes', '--json']),
+      ctx,
+    );
+    expect(installAll.exitCode).toBe(0);
+
+    const listAll = handlePluginCommand(parseCliArgs(['plugin', 'list', '--json']), ctx);
+    expect(listAll.exitCode).toBe(0);
+    const listPayload = JSON.parse(listAll.stdout) as {
+      ok: boolean;
+      installations: { harnessId: string; pluginName: string }[];
+    };
+    expect(listPayload.installations).toHaveLength(2);
+
+    const pluginName = listPayload.installations[0]?.pluginName ?? 'valid-sample';
+
+    // 6. plugin uninstall <name> --target antigravity
+    const uninstRes = handlePluginCommand(
+      parseCliArgs(['plugin', 'uninstall', pluginName, '--target', 'antigravity', '--json']),
+      ctx,
+    );
+    expect(uninstRes.exitCode).toBe(0);
+
+    const listAfter = handlePluginCommand(parseCliArgs(['plugin', 'list', '--json']), ctx);
+    expect(
+      (JSON.parse(listAfter.stdout) as { installations: unknown[] }).installations,
+    ).toHaveLength(1);
   });
 });
