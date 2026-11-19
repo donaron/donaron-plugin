@@ -2,6 +2,30 @@
 
 Personal multi-harness AI development workflow and fail-closed gate enforcement system for **Antigravity** and **Claude Code**, targeting **Node.js + React** codebases.
 
+## Quick Install
+
+Requirements: **Node.js `>= 24.0.0`**, **pnpm `10.x`**, and **Git**.
+
+```bash
+# 1. Clone and build
+git clone https://github.com/donaron/donaron-plugin.git
+cd donaron-plugin
+pnpm install
+pnpm run build
+
+# 2. Verify environment and validate the plugin
+node apps/cli/dist/cli.js doctor
+node apps/cli/dist/cli.js plugin validate plugins/donaron-dev
+
+# 3. Install into Antigravity (~/.gemini/config/plugins/donaron-dev)
+node apps/cli/dist/cli.js plugin install plugins/donaron-dev --target antigravity --yes
+
+# Or install into both Antigravity and Claude Code (~/.claude/plugins/donaron-dev)
+node apps/cli/dist/cli.js plugin install plugins/donaron-dev --target all --yes
+```
+
+See the full [Installation, Upgrade & Uninstall Guide](docs/installation.md) for export-only, upgrade, and uninstall commands.
+
 ## Implementation Status
 
 Documentation explicitly separates implemented behavior from planned phases:
