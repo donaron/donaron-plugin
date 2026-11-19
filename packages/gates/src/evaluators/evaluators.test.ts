@@ -14,6 +14,8 @@ import {
   PINNED_OWASP_TOP_10_VERSION,
   scanWorkspaceForSecrets,
 } from './gate03-security.js';
+import { evaluateGate04Testing, vitestRunnerParser } from './gate04-testing.js';
+import { evaluateGate05Signoff } from './gate05-signoff.js';
 
 const tempDirs: string[] = [];
 
@@ -403,5 +405,201 @@ describe('Gate 01 (Planning Document Review) & Gate 02 (Pre-Test Code Review)', 
       },
     });
     expect(passDecision.decision).toBe('PASS');
+  });
+
+  it('Gate 04 enforces Vitest test execution, rejects skipped/failed/0 tests, and enforces per-package >=70% coverage in monorepos', () => {
+    const root = createTempWorkspace();
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    mkdirSync(join(root, 'coverage'), { recursive: true });
+    mkdirSync(join(root, 'packages', 'core', 'src'), { recursive: true });
+    mkdirSync(join(root, 'packages', 'gates', 'src'), { recursive: true });
+    writeFileSync(join(root, 'docs', 'plan.md'), COMPLETE_PLAN_MD, 'utf8');
+    writeFileSync(
+      join(root, 'packages', 'core', 'src', 'index.ts'),
+      'export const c = 1;\n',
+      'utf8',
+    );
+    writeFileSync(
+      join(root, 'packages', 'gates', 'src', 'index.ts'),
+      'export const g = 1;\n',
+      'utf8',
+    );
+
+    const store = new EvidenceStore(root);
+    store.initRun({
+      runId: 'run-g4',
+      tier: 'strict',
+      taskDescription: 'Gate 4 coverage check',
+      planFiles: ['docs/plan.md'],
+      actorId: 'user-1',
+    });
+
+    const parsedVitest = vitestRunnerParser.parseTestResults(
+      JSON.stringify({
+        numTotalTests: 10,
+        numPassedTests: 10,
+        numFailedTests: 0,
+        numPendingTests: 0,
+        numTodoTests: 0,
+      }),
+    );
+    expect(parsedVitest).toEqual({
+      ok: true,
+      value: { totalTests: 10, passedTests: 10, failedTests: 0, skippedTests: 0 },
+    });
+
+    // Aggregate is 85%, packages/core is 95%, but packages/gates branches is 65% (<70%) -> FAIL!
+    writeFileSync(
+      join(root, 'coverage', 'coverage-summary.json'),
+      JSON.stringify({
+        total: {
+          lines: { total: 100, covered: 85, pct: 85 },
+          statements: { total: 100, covered: 85, pct: 85 },
+          functions: { total: 20, covered: 18, pct: 90 },
+          branches: { total: 40, covered: 34, pct: 85 },
+        },
+        [join(root, 'packages', 'core', 'src', 'index.ts')]: {
+          lines: { total: 50, covered: 48, pct: 96 },
+          statements: { total: 50, covered: 48, pct: 96 },
+          functions: { total: 10, covered: 10, pct: 100 },
+          branches: { total: 20, covered: 19, pct: 95 },
+        },
+        [join(root, 'packages', 'gates', 'src', 'index.ts')]: {
+          lines: { total: 50, covered: 40, pct: 80 },
+          statements: { total: 50, covered: 40, pct: 80 },
+          functions: { total: 10, covered: 8, pct: 80 },
+          branches: { total: 20, covered: 13, pct: 65 },
+        },
+      }),
+      'utf8',
+    );
+
+    const perPkgFail = evaluateGate04Testing({
+      workspaceRoot: root,
+      runId: 'run-g4',
+      store,
+      testRun: { totalTests: 10, passedTests: 10, failedTests: 0, skippedTests: 0 },
+      requiredPackages: ['packages/core', 'packages/gates'],
+    });
+    expect(perPkgFail.decision).toBe('FAIL');
+    expect(
+      perPkgFail.findings.some(
+        (f) =>
+          f.ruleId === 'PACKAGE_COVERAGE_BELOW_THRESHOLD' && f.message.includes('packages/gates'),
+      ),
+    ).toBe(true);
+
+    // Raise packages/gates branches to 15/20 (75%) -> PASS!
+    writeFileSync(
+      join(root, 'coverage', 'coverage-summary.json'),
+      JSON.stringify({
+        total: {
+          lines: { total: 100, covered: 88, pct: 88 },
+          statements: { total: 100, covered: 88, pct: 88 },
+          functions: { total: 20, covered: 18, pct: 90 },
+          branches: { total: 40, covered: 34, pct: 85 },
+        },
+        [join(root, 'packages', 'core', 'src', 'index.ts')]: {
+          lines: { total: 50, covered: 48, pct: 96 },
+          statements: { total: 50, covered: 48, pct: 96 },
+          functions: { total: 10, covered: 10, pct: 100 },
+          branches: { total: 20, covered: 19, pct: 95 },
+        },
+        [join(root, 'packages', 'gates', 'src', 'index.ts')]: {
+          lines: { total: 50, covered: 40, pct: 80 },
+          statements: { total: 50, covered: 40, pct: 80 },
+          functions: { total: 10, covered: 8, pct: 80 },
+          branches: { total: 20, covered: 15, pct: 75 },
+        },
+      }),
+      'utf8',
+    );
+
+    // Skipped tests without allowSkippedTests -> FAIL
+    expect(
+      evaluateGate04Testing({
+        workspaceRoot: root,
+        runId: 'run-g4',
+        store,
+        testRun: { totalTests: 10, passedTests: 9, failedTests: 0, skippedTests: 1 },
+        requiredPackages: ['packages/core', 'packages/gates'],
+      }).decision,
+    ).toBe('FAIL');
+
+    const passG4 = evaluateGate04Testing({
+      workspaceRoot: root,
+      runId: 'run-g4',
+      store,
+      testRun: { totalTests: 10, passedTests: 10, failedTests: 0, skippedTests: 0 },
+      requiredPackages: ['packages/core', 'packages/gates'],
+    });
+    expect(passG4.decision).toBe('PASS');
+  });
+
+  it('Gate 05 verifies fresh PASS evidence for Gates 01-04 and independent code-reviewer sign-off, failing closed if post-review edits make prior gates stale', () => {
+    const root = createTempWorkspace();
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'docs', 'plan.md'), COMPLETE_PLAN_MD, 'utf8');
+    writeFileSync(join(root, 'src', 'app.ts'), 'export const v = 1;\n', 'utf8');
+
+    const store = new EvidenceStore(root);
+    store.initRun({
+      runId: 'run-g5',
+      tier: 'strict',
+      taskDescription: 'Gate 5 end-to-end check',
+      planFiles: ['docs/plan.md'],
+      actorId: 'user-1',
+    });
+
+    const planHashRes = computePlanHash(root, ['docs/plan.md']);
+    const codeHashRes = computeCodeHash(root, { planFiles: ['docs/plan.md'] });
+    if (!planHashRes.ok || !codeHashRes.ok) return;
+    const planHash = planHashRes.value;
+    const codeHash = codeHashRes.value.codeHash;
+
+    for (const gateId of ['GATE_01', 'GATE_02', 'GATE_03', 'GATE_04'] as const) {
+      store.recordGateDecision({
+        gateId,
+        gateVersion: '1.0.0',
+        runId: 'run-g5',
+        ...(gateId === 'GATE_01' ? { planHash } : { codeHash }),
+        evaluator: { type: 'deterministic', id: gateId },
+        checks: [],
+        evidenceRefs: [],
+        findings: [],
+        decision: 'PASS',
+        timestamp: '2026-11-19T00:00:00.000Z',
+      });
+    }
+
+    store.recordReview({
+      gateId: 'GATE_05',
+      runId: 'run-g5',
+      role: 'code-reviewer',
+      evaluator: { type: 'agent', id: 'final-reviewer' },
+      approved: true,
+      summary: 'All gates verified and code approved',
+      findings: [],
+      codeHash,
+      timestamp: '2026-11-19T00:05:00.000Z',
+    });
+
+    const passG5 = evaluateGate05Signoff({
+      workspaceRoot: root,
+      runId: 'run-g5',
+      store,
+    });
+    expect(passG5.decision).toBe('PASS');
+
+    // Modify source file after Gates 02-04 passed -> Gates 02-04 & review become STALE -> FAIL!
+    writeFileSync(join(root, 'src', 'app.ts'), 'export const v = 2;\n', 'utf8');
+    const staleG5 = evaluateGate05Signoff({
+      workspaceRoot: root,
+      runId: 'run-g5',
+      store,
+    });
+    expect(staleG5.decision).toBe('FAIL');
+    expect(staleG5.findings.some((f) => f.ruleId === 'PRIOR_GATE_NOT_FRESH')).toBe(true);
   });
 });
