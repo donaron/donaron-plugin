@@ -276,7 +276,7 @@ describe('CLI Arg Parser, Doctor, and Adapter Capabilities Commands', () => {
       },
     };
 
-    // 1. Agent cannot start quick tier
+    // 1. Agent or non-TTY process cannot start quick/standard tier even if --actor is omitted or spoofed as human
     const agentQuick = handleWorkflowCommand(
       parseCliArgs([
         'workflow',
@@ -295,6 +295,25 @@ describe('CLI Arg Parser, Doctor, and Adapter Capabilities Commands', () => {
     );
     expect(agentQuick.exitCode).toBe(1);
     expect(agentQuick.stdout).toContain('TIER_DOWNGRADE_FORBIDDEN');
+
+    const nonTtySpoofedHumanQuick = handleWorkflowCommand(
+      parseCliArgs([
+        'workflow',
+        'start',
+        '--run-id',
+        'run-spoof',
+        '--task',
+        'Spoofed human quick bypass from non-TTY agent shell',
+        '--tier',
+        'quick',
+        '--actor',
+        'human',
+        '--json',
+      ]),
+      { ...ctx, isInteractiveTty: false },
+    );
+    expect(nonTtySpoofedHumanQuick.exitCode).toBe(1);
+    expect(nonTtySpoofedHumanQuick.stdout).toContain('TIER_DOWNGRADE_FORBIDDEN');
 
     // 2. Start strict workflow
     const started = handleWorkflowCommand(
@@ -545,9 +564,12 @@ describe('CLI Arg Parser, Doctor, and Adapter Capabilities Commands', () => {
     expect(runCli(['gate', 'override'], emptyCtx).exitCode).toBe(1);
     expect(runCli(['gate', 'unknown'], emptyCtx).exitCode).toBe(1);
 
-    // Start a quick workflow in emptyRoot and run `gate run all` + `gate run 03 --offline-waiver` + `gate run bad`
+    // Start a quick workflow in emptyRoot (requires interactive TTY) and run `gate run all` + `gate run 03 --offline-waiver` + `gate run bad`
     expect(
-      runCli(['workflow', 'start', '--run-id', 'r-quick', '--tier', 'quick'], emptyCtx).exitCode,
+      runCli(['workflow', 'start', '--run-id', 'r-quick', '--tier', 'quick'], {
+        ...emptyCtx,
+        isInteractiveTty: true,
+      }).exitCode,
     ).toBe(0);
     expect(runCli(['gate', 'run', 'unknown-gate'], emptyCtx).exitCode).toBe(1);
     expect(

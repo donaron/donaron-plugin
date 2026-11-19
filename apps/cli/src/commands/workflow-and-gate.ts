@@ -111,8 +111,17 @@ export function handleWorkflowCommand(
       );
     }
     const tier = tierRaw as WorkflowTier;
-    const actorRaw = getStringFlag(parsed, 'actor') ?? context.actorType ?? 'human';
-    const actorType: 'agent' | 'human' = actorRaw === 'agent' ? 'agent' : 'human';
+    const actorFlag = getStringFlag(parsed, 'actor');
+    const isVerifiedHuman =
+      actorFlag !== 'agent' && (context.isInteractiveTty === true || context.actorType === 'human');
+    const actorType: 'agent' | 'human' =
+      tier === 'strict'
+        ? actorFlag === 'agent' || context.actorType === 'agent'
+          ? 'agent'
+          : 'human'
+        : isVerifiedHuman
+          ? 'human'
+          : 'agent';
     const actorId = getStringFlag(parsed, 'actor-id') ?? 'cli-user';
     const planFiles = getStringArrayFlag(parsed, 'plan');
 
