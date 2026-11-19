@@ -141,7 +141,7 @@ describe('executeNormalizedHook', () => {
       }).decision,
     ).toBe('deny');
 
-    // REQUIRE_APPROVAL maps to 'ask' (e.g. git push --force)
+    // git push --force is DENIED, while regular git push requires approval ('ask')
     expect(
       executeNormalizedHook({
         harnessId: 'claude-code',
@@ -150,6 +150,18 @@ describe('executeNormalizedHook', () => {
         toolCall: {
           name: 'Bash',
           args: { command: 'git push --force origin main' },
+        },
+      }).decision,
+    ).toBe('deny');
+
+    expect(
+      executeNormalizedHook({
+        harnessId: 'claude-code',
+        event: 'PreToolUse',
+        workspaceRoot: root,
+        toolCall: {
+          name: 'Bash',
+          args: { command: 'git push origin main' },
         },
       }).decision,
     ).toBe('ask');

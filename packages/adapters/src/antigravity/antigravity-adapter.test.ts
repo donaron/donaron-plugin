@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadPlugin, type LoadedPlugin } from '@donaron/core';
@@ -127,9 +127,10 @@ describe('AntigravityAdapter', () => {
     expect(exported.value.sourceDigest).toBe(loaded.value.digest);
 
     // 1. plugin.json contains ONLY Antigravity-allowed top-level fields
-    const rawManifest = JSON.parse(
-      readFileSync(join(outDir, 'plugin.json'), 'utf8'),
-    ) as Record<string, unknown>;
+    const rawManifest = JSON.parse(readFileSync(join(outDir, 'plugin.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(rawManifest.name).toBe(loaded.value.manifest.name);
     expect(rawManifest.version).toBe(loaded.value.manifest.version);
     expect(rawManifest.description).toBe(loaded.value.manifest.description);
