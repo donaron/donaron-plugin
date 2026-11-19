@@ -26,8 +26,32 @@ describe('Phase 1 build boundaries and deliverables', () => {
   it('enforces core independence with zero internal or harness dependencies in @donaron/core', () => {
     const corePkg = JSON.parse(
       readFileSync(resolve(ROOT, 'packages/core/package.json'), 'utf8'),
-    ) as { dependencies?: Record<string, string> };
-    expect(corePkg.dependencies ?? {}).toEqual({});
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+    };
+
+    const allDeps = {
+      ...corePkg.dependencies,
+      ...corePkg.devDependencies,
+      ...corePkg.peerDependencies,
+      ...corePkg.optionalDependencies,
+    };
+
+    for (const [depName, depVersion] of Object.entries(allDeps)) {
+      expect(depName.startsWith('@donaron/'), `Unexpected workspace dep in core: ${depName}`).toBe(
+        false,
+      );
+      expect(
+        depVersion.startsWith('workspace:'),
+        `Unexpected workspace protocol dep in core: ${depName}@${depVersion}`,
+      ).toBe(false);
+      expect(depName, `Unexpected harness SDK dep in core: ${depName}`).not.toMatch(
+        /^(?:@anthropic-ai\/|@openai\/|@github\/|claude|codex|cursor|antigravity)/i,
+      );
+    }
   });
 
   it('includes all required Phase 1 documentation and committed spec artifacts', () => {
