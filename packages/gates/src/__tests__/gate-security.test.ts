@@ -6,6 +6,7 @@ import {
   computeCodeHash,
   computePlanHash,
   DONARON_GATES_VERSION,
+  evaluateGate01Planning,
   evaluateGate03Security,
   evaluateGate04Testing,
   evaluateGate05Signoff,
@@ -139,5 +140,103 @@ describe('Phase 3 Gate-Bypass & Security Regression Suite (@donaron/gates public
       store,
     });
     expect(g5Decision.decision).toBe('FAIL');
+  });
+
+  it('blocks case/whitespace self-approval spoofing, empty evaluator IDs, and superseded Gate 01 approvals', () => {
+    const root = createTempWorkspace();
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    writeFileSync(
+      join(root, 'docs', 'plan.md'),
+      `# Plan\n## Requirements\nR\n## Specification\nS\n## Architecture\nA\n## Task Plan\nT\n## Acceptance Criteria\nC\n`,
+      'utf8',
+    );
+
+    const store = new EvidenceStore(root);
+    store.initRun({
+      runId: 'sec-run-2',
+      tier: 'strict',
+      taskDescription: 'Self-approval normalization & superseded review test',
+      planFiles: ['docs/plan.md'],
+      actorId: 'user-1',
+    });
+
+    store.registerArtifactAuthor('sec-run-2', 'code', 'Developer-Bot');
+
+    // Case/whitespace variations of Developer-Bot must be blocked as self-approval
+    expect(
+      store.recordReview({
+        gateId: 'GATE_02',
+        runId: 'sec-run-2',
+        role: 'code-reviewer',
+        evaluator: { type: 'agent', id: '  developer-bot  ' },
+        approved: true,
+        summary: 'Spoofed case/whitespace self-approval',
+        findings: [],
+        codeHash: 'sha256:abc',
+        timestamp: '2026-11-19T00:00:00.000Z',
+      }).ok,
+    ).toBe(false);
+
+    // Blank evaluator ID must be rejected
+    expect(
+      store.recordReview({
+        gateId: 'GATE_02',
+        runId: 'sec-run-2',
+        role: 'code-reviewer',
+        evaluator: { type: 'agent', id: '   ' },
+        approved: true,
+        summary: 'Empty evaluator ID',
+        findings: [],
+        codeHash: 'sha256:abc',
+        timestamp: '2026-11-19T00:00:00.000Z',
+      }).ok,
+    ).toBe(false);
+
+    const planHashRes = computePlanHash(root, ['docs/plan.md']);
+    if (!planHashRes.ok) return;
+
+    // Gate 01: intake-reviewer approves first, then submits a later unapproved review for the same planHash
+    store.recordReview({
+      gateId: 'GATE_01',
+      runId: 'sec-run-2',
+      role: 'intake-reviewer',
+      evaluator: { type: 'agent', id: 'intake-1' },
+      approved: true,
+      summary: 'Initial approval',
+      findings: [],
+      planHash: planHashRes.value,
+      timestamp: '2026-11-19T00:00:00.000Z',
+    });
+    store.recordReview({
+      gateId: 'GATE_01',
+      runId: 'sec-run-2',
+      role: 'intake-reviewer',
+      evaluator: { type: 'agent', id: 'intake-1' },
+      approved: false,
+      summary: 'Wait, found an ambiguity upon re-check',
+      findings: [],
+      planHash: planHashRes.value,
+      timestamp: '2026-11-19T00:01:00.000Z',
+    });
+    store.recordReview({
+      gateId: 'GATE_01',
+      runId: 'sec-run-2',
+      role: 'solutions-architect',
+      evaluator: { type: 'agent', id: 'arch-1' },
+      approved: true,
+      summary: 'Architecture approved',
+      findings: [],
+      planHash: planHashRes.value,
+      timestamp: '2026-11-19T00:01:00.000Z',
+    });
+
+    // Must FAIL because the latest intake-reviewer review is approved: false!
+    expect(
+      evaluateGate01Planning({
+        workspaceRoot: root,
+        runId: 'sec-run-2',
+        store,
+      }).decision,
+    ).toBe('FAIL');
   });
 });

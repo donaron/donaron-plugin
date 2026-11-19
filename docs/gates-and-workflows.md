@@ -61,13 +61,13 @@ A naive repository hash causes an infinite stale-evidence loop: writing gate evi
         │   ├── GATE_04-001.json
         │   └── GATE_05-001.json
         └── reviews/
-            ├── review-001.json
-            └── review-002.json
+            ├── GATE_01-001.json
+            └── GATE_02-001.json
 ```
 
 ### Key Integrity Guarantees
 
-- **Path Traversal Prevention:** `runId` is validated against `/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/` and every read/write resolves through `resolveSafePluginPath`.
+- **Path Traversal Prevention:** `runId` is validated against `/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/` and every read/write resolves inside `.donaron/runs/<runId>/`.
 - **Immutable Numbered Decision History (`recordGateDecision`):** Gate evaluations write sequentially numbered immutable files (`evidence/GATE_01-001.json`, `evidence/GATE_01-002.json`, etc.) so rework history is preserved (`listGateDecisions`) while `getLatestGateDecision` returns the most recent decision for a gate.
 - **Automatic Secret Redaction:** Every workflow state, review artifact, gate decision record, and `audit.jsonl` record is passed through `redactObject` / `redactSecrets` from `@donaron/core` before hitting disk. Raw credentials (`sk-ant-...`, `AKIA...`, `ghp_...`, bearer tokens, private keys) are scrubbed to `[REDACTED]`.
 - **Role Allowlist & Anti-Self-Approval (`registerArtifactAuthor` & `recordReview`):**

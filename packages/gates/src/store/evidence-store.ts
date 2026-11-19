@@ -337,9 +337,23 @@ export class EvidenceStore {
     }
     const state = loaded.value;
 
+    const evaluatorId = review.evaluator.id.trim();
+    if (evaluatorId.length === 0) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: 'INVALID_EVALUATOR_ID',
+            path: 'evaluator.id',
+            message: 'Review evaluator ID must be non-empty.',
+          },
+        ],
+      };
+    }
+
     const allowedRoles = ALLOWED_ROLES_BY_GATE[review.gateId];
     if (!allowedRoles.has(review.role)) {
-      this.appendAuditEntry(review.runId, 'REVIEW_REJECTED', review.evaluator.id, {
+      this.appendAuditEntry(review.runId, 'REVIEW_REJECTED', evaluatorId, {
         gateId: review.gateId,
         role: review.role,
         reason: 'UNAUTHORIZED_REVIEWER_ROLE',
@@ -358,8 +372,11 @@ export class EvidenceStore {
 
     const forbiddenAuthorList =
       review.gateId === 'GATE_01' ? state.planAuthorIds : state.implementerIds;
-    if (forbiddenAuthorList.includes(review.evaluator.id)) {
-      this.appendAuditEntry(review.runId, 'REVIEW_REJECTED', review.evaluator.id, {
+    const normalizedEvaluatorId = evaluatorId.toLowerCase();
+    if (
+      forbiddenAuthorList.some((author) => author.trim().toLowerCase() === normalizedEvaluatorId)
+    ) {
+      this.appendAuditEntry(review.runId, 'REVIEW_REJECTED', evaluatorId, {
         gateId: review.gateId,
         role: review.role,
         reason: 'SELF_APPROVAL_FORBIDDEN',
@@ -370,7 +387,7 @@ export class EvidenceStore {
           {
             code: 'SELF_APPROVAL_FORBIDDEN',
             path: 'evaluator.id',
-            message: `Actor "${review.evaluator.id}" authored the artifact under review and cannot approve ${review.gateId}.`,
+            message: `Actor "${evaluatorId}" authored the artifact under review and cannot approve ${review.gateId}.`,
           },
         ],
       };

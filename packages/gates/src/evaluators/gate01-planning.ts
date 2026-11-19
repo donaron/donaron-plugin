@@ -146,32 +146,39 @@ export function evaluateGate01Planning(input: Gate01Input): GateDecisionRecord {
     }
   }
 
-  const hasApprovedHuman = freshReviews.some(
-    (r) =>
-      r.role === 'human' &&
-      r.evaluator.type === 'human' &&
-      r.approved &&
-      !r.findings.some((f) => f.severity === 'critical' || f.severity === 'high'),
+  const humanReviews = freshReviews.filter(
+    (r) => r.role === 'human' && r.evaluator.type === 'human',
   );
+  const latestHuman = humanReviews[humanReviews.length - 1];
+  const hasApprovedHuman =
+    latestHuman !== undefined &&
+    latestHuman.approved &&
+    !latestHuman.findings.some((f) => f.severity === 'critical' || f.severity === 'high');
 
-  const approvedIntake = freshReviews.find(
-    (r) =>
-      r.role === 'intake-reviewer' &&
-      r.approved &&
-      !r.findings.some((f) => f.severity === 'critical' || f.severity === 'high'),
-  );
-  const approvedArch = freshReviews.find(
-    (r) =>
-      r.role === 'solutions-architect' &&
-      r.approved &&
-      !r.findings.some((f) => f.severity === 'critical' || f.severity === 'high'),
-  );
+  const intakeReviews = freshReviews.filter((r) => r.role === 'intake-reviewer');
+  const latestIntake = intakeReviews[intakeReviews.length - 1];
+  const approvedIntake =
+    latestIntake !== undefined &&
+    latestIntake.approved &&
+    !latestIntake.findings.some((f) => f.severity === 'critical' || f.severity === 'high')
+      ? latestIntake
+      : undefined;
+
+  const archReviews = freshReviews.filter((r) => r.role === 'solutions-architect');
+  const latestArch = archReviews[archReviews.length - 1];
+  const approvedArch =
+    latestArch !== undefined &&
+    latestArch.approved &&
+    !latestArch.findings.some((f) => f.severity === 'critical' || f.severity === 'high')
+      ? latestArch
+      : undefined;
 
   const reviewPassed =
     hasApprovedHuman ||
     (approvedIntake !== undefined &&
       approvedArch !== undefined &&
-      approvedIntake.evaluator.id !== approvedArch.evaluator.id);
+      approvedIntake.evaluator.id.trim().toLowerCase() !==
+        approvedArch.evaluator.id.trim().toLowerCase());
 
   checks.push({
     name: 'independent-planning-review',
