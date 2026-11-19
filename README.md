@@ -13,7 +13,7 @@ Documentation explicitly separates implemented behavior from planned phases:
 | **Phase 3** | Scoped `planHash`/`codeHash` Evidence Store, Gates 01–05, `strict` default workflow state machine (`@donaron/gates`)                      | **Implemented** |
 | **Phase 4** | Harness adapter contract + Antigravity and Claude Code exporters & hook payload translators (`@donaron/adapters`)                         | **Implemented** |
 | **Phase 5** | Full `donaron` CLI (`doctor`, `plugin`, `export`, `adapter`, `workflow`, `gate`, `hook`) (`@donaron/cli`)                                 | **Implemented** |
-| **Phase 6** | Flagship Node + React plugin bundle (`plugins/donaron-dev`) + live Antigravity smoke verification                                         | Planned         |
+| **Phase 6** | Flagship Node + React plugin bundle (`plugins/donaron-dev`) + dual export & hook smoke verification                                       | **Implemented** |
 | **Phase 7** | Security hardening, self-gated Gates 01–05 verification, and complete reference docs                                                      | Planned         |
 
 ## Workspace Layout
@@ -29,7 +29,7 @@ donaron-plugin/
 ├── apps/
 │   └── cli/              # @donaron/cli — full donaron CLI & live stdin/stdout hook bridge (Implemented)
 ├── plugins/
-│   └── donaron-dev/      # Personal Node + React plugin source bundle (Phase 6 Planned)
+│   └── donaron-dev/      # Personal Node + React plugin source bundle (Implemented)
 ├── tests/
 │   ├── contract/         # Adapter golden export & live hook round-trip contract tests (Phase 4)
 │   ├── e2e/              # E2E CLI & subprocess hook bridge tests on Node+React fixture (Phase 5)
@@ -50,7 +50,8 @@ donaron-plugin/
             ├── 2026-11-19-phase-2-core-engine.md
             ├── 2026-11-19-phase-3-gate-engine.md
             ├── 2026-11-19-phase-4-harness-adapters.md
-            └── 2026-11-19-phase-5-cli-and-hooks.md
+            ├── 2026-11-19-phase-5-cli-and-hooks.md
+            └── 2026-11-19-phase-6-donaron-dev-plugin.md
 ```
 
 ## Prerequisites & Local Commands
@@ -84,3 +85,4 @@ pnpm clean          # remove dist/, coverage/, and *.tsbuildinfo artifacts
 - [Phase 3 Gate Engine Implementation Plan](docs/superpowers/plans/2026-11-19-phase-3-gate-engine.md)
 - [Phase 4 Harness Adapters Implementation Plan](docs/superpowers/plans/2026-11-19-phase-4-harness-adapters.md)
 - [Phase 5 CLI & Hook Bridge Implementation Plan](docs/superpowers/plans/2026-11-19-phase-5-cli-and-hooks.md)
+- [Phase 6 Flagship Plugin Implementation Plan](docs/superpowers/plans/2026-11-19-phase-6-donaron-dev-plugin.md)

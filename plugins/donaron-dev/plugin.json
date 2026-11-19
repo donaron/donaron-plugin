@@ -49,12 +49,7 @@
       "agents/code-reviewer.md",
       "agents/qa.md"
     ],
-    "rules": [
-      "rules/routing.md",
-      "rules/security.md",
-      "rules/development.md",
-      "rules/writing.md"
-    ],
+    "rules": ["rules/routing.md", "rules/security.md", "rules/development.md", "rules/writing.md"],
     "hooks": ["hooks/hooks.json"]
   }
 }
