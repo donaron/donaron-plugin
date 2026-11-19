@@ -602,4 +602,219 @@ describe('Gate 01 (Planning Document Review) & Gate 02 (Pre-Test Code Review)', 
     expect(staleG5.decision).toBe('FAIL');
     expect(staleG5.findings.some((f) => f.ruleId === 'PRIOR_GATE_NOT_FRESH')).toBe(true);
   });
+
+  it('covers fail-closed edge cases across Gates 01-05 (missing run state, .donaronignore, .env detection, audit formats, disk testResults, and malformed coverage)', () => {
+    const root = createTempWorkspace();
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'coverage'), { recursive: true });
+    writeFileSync(join(root, 'docs', 'plan.md'), COMPLETE_PLAN_MD, 'utf8');
+    writeFileSync(join(root, 'src', 'app.ts'), 'export const v = 1;\n', 'utf8');
+
+    const store = new EvidenceStore(root);
+    const dummyRunner: PretestCheckRunner = {
+      runTypecheck: () => {
+        throw new Error('tsc crashed');
+      },
+      runLint: () => ({ passed: false, output: 'lint fail' }),
+    };
+
+    // Missing run state fails closed across all 5 gates
+    expect(
+      evaluateGate01Planning({ workspaceRoot: root, runId: 'missing-run', store }).decision,
+    ).toBe('FAIL');
+    expect(
+      evaluateGate02Pretest({
+        workspaceRoot: root,
+        runId: 'missing-run',
+        store,
+        runner: dummyRunner,
+      }).decision,
+    ).toBe('FAIL');
+    expect(
+      evaluateGate03Security({ workspaceRoot: root, runId: 'missing-run', store }).decision,
+    ).toBe('FAIL');
+    expect(
+      evaluateGate04Testing({ workspaceRoot: root, runId: 'missing-run', store }).decision,
+    ).toBe('FAIL');
+    expect(
+      evaluateGate05Signoff({ workspaceRoot: root, runId: 'missing-run', store }).decision,
+    ).toBe('FAIL');
+
+    store.initRun({
+      runId: 'run-edges',
+      tier: 'strict',
+      taskDescription: 'Edge cases',
+      planFiles: ['docs/plan.md'],
+      actorId: 'user-1',
+    });
+
+    // Gate 02 with throwing typecheck and missing review
+    const g2Throw = evaluateGate02Pretest({
+      workspaceRoot: root,
+      runId: 'run-edges',
+      store,
+      runner: dummyRunner,
+    });
+    expect(g2Throw.decision).toBe('FAIL');
+    expect(g2Throw.findings.some((f) => f.ruleId === 'PRETEST_REVIEW_REQUIRED')).toBe(true);
+
+    // Gate 03: .donaronignore, unignored .env vs gitignored .env, and .donaron/config.json aiApplication
+    writeFileSync(join(root, '.env'), 'SECRET=1\n', 'utf8');
+    writeFileSync(join(root, '.donaronignore'), '# comment\nignored-dir/\n', 'utf8');
+    mkdirSync(join(root, 'ignored-dir'), { recursive: true });
+    writeFileSync(
+      join(root, 'ignored-dir', 'skip.ts'),
+      'const k = "AKIA1234567890ABCDEF";\n',
+      'utf8',
+    );
+    const envFindings = scanWorkspaceForSecrets(root);
+    expect(envFindings.some((f) => f.ruleId === 'SECRET_ENV_FILE')).toBe(true);
+    expect(envFindings.some((f) => f.file?.includes('ignored-dir'))).toBe(false);
+
+    writeFileSync(join(root, '.gitignore'), '.env*\n', 'utf8');
+    expect(scanWorkspaceForSecrets(root).some((f) => f.ruleId === 'SECRET_ENV_FILE')).toBe(false);
+
+    expect(detectAiApplication(root)).toBe(false);
+    mkdirSync(join(root, 'apps', 'web'), { recursive: true });
+    writeFileSync(
+      join(root, 'apps', 'web', 'package.json'),
+      JSON.stringify({ dependencies: { '@ai-sdk/openai': '^1.0.0' } }),
+      'utf8',
+    );
+    expect(detectAiApplication(root)).toBe(true);
+    writeFileSync(
+      join(root, '.donaron', 'config.json'),
+      JSON.stringify({ aiApplication: false }),
+      'utf8',
+    );
+    expect(detectAiApplication(root)).toBe(false);
+
+    // parseDependencyAuditJson alternative formats & errors
+    expect(parseDependencyAuditJson('[]').ok).toBe(false);
+    expect(parseDependencyAuditJson('{}').ok).toBe(false);
+    const vulnMapParsed = parseDependencyAuditJson(
+      JSON.stringify({
+        vulnerabilities: {
+          pkgA: { severity: 'critical' },
+          pkgB: { severity: 'high' },
+          pkgC: { severity: 'moderate' },
+          pkgD: { severity: 'low' },
+        },
+      }),
+    );
+    expect(vulnMapParsed).toEqual({
+      ok: true,
+      value: {
+        executed: true,
+        criticalCount: 1,
+        highCount: 1,
+        moderateCount: 1,
+        lowCount: 1,
+      },
+    });
+
+    // Gate 03 with invalid auditReportJson, valid auditReportJson with critical/high vulns, and offline waiver
+    expect(
+      evaluateGate03Security({
+        workspaceRoot: root,
+        runId: 'run-edges',
+        store,
+        auditReportJson: 'not-valid-json',
+        requireOwaspReview: false,
+      }).decision,
+    ).toBe('FAIL');
+
+    expect(
+      evaluateGate03Security({
+        workspaceRoot: root,
+        runId: 'run-edges',
+        store,
+        auditReportJson: JSON.stringify({
+          vulnerabilities: { a: { severity: 'critical' }, b: { severity: 'high' } },
+        }),
+        requireOwaspReview: false,
+      }).decision,
+    ).toBe('FAIL');
+
+    expect(
+      evaluateGate03Security({
+        workspaceRoot: root,
+        runId: 'run-edges',
+        store,
+        auditSummary: {
+          executed: false,
+          offlineWaiverReason: 'Air-gapped CI runner waiver',
+          criticalCount: 0,
+          highCount: 0,
+          moderateCount: 0,
+          lowCount: 0,
+        },
+        requireOwaspReview: false,
+      }).decision,
+    ).toBe('PASS');
+
+    // Gate 04: vitestRunnerParser errors, reading testResultsPath from disk, 0 tests, failed tests, missing/malformed coverage, aggregate below threshold, missing requiredPackage
+    expect(vitestRunnerParser.parseTestResults('bad-json').ok).toBe(false);
+    expect(vitestRunnerParser.parseTestResults('[]').ok).toBe(false);
+    expect(vitestRunnerParser.parseTestResults('{}').ok).toBe(false);
+
+    // Missing testResultsPath & missing coverageSummaryPath
+    const g4MissingFiles = evaluateGate04Testing({
+      workspaceRoot: root,
+      runId: 'run-edges',
+      store,
+      testResultsPath: 'coverage/missing-tests.json',
+      coverageSummaryPath: 'coverage/missing-cov.json',
+    });
+    expect(g4MissingFiles.decision).toBe('FAIL');
+    expect(g4MissingFiles.findings.some((f) => f.ruleId === 'TEST_RESULTS_MISSING')).toBe(true);
+    expect(g4MissingFiles.findings.some((f) => f.ruleId === 'COVERAGE_REPORT_MISSING')).toBe(true);
+
+    // Malformed testResultsPath and malformed coverageSummaryPath on disk
+    writeFileSync(join(root, 'coverage', 'test-results.json'), 'not-json', 'utf8');
+    writeFileSync(join(root, 'coverage', 'coverage-summary.json'), '{"total": {}}', 'utf8');
+    const g4Malformed = evaluateGate04Testing({
+      workspaceRoot: root,
+      runId: 'run-edges',
+      store,
+    });
+    expect(g4Malformed.decision).toBe('FAIL');
+    expect(g4Malformed.findings.some((f) => f.ruleId === 'TEST_RESULTS_INVALID_JSON')).toBe(true);
+    expect(g4Malformed.findings.some((f) => f.ruleId === 'COVERAGE_REPORT_MALFORMED')).toBe(true);
+
+    // Valid test-results.json on disk with 0 tests & failures, plus aggregate coverage <70% and missing required package
+    writeFileSync(
+      join(root, 'coverage', 'test-results.json'),
+      JSON.stringify({
+        numTotalTests: 0,
+        numPassedTests: 0,
+        numFailedTests: 2,
+      }),
+      'utf8',
+    );
+    writeFileSync(
+      join(root, 'coverage', 'coverage-summary.json'),
+      JSON.stringify({
+        total: {
+          lines: { total: 100, covered: 50, pct: 50 },
+          statements: { total: 100, covered: 50, pct: 50 },
+          functions: { total: 10, covered: 5, pct: 50 },
+          branches: { total: 10, covered: 5, pct: 50 },
+        },
+      }),
+      'utf8',
+    );
+    const g4Below = evaluateGate04Testing({
+      workspaceRoot: root,
+      runId: 'run-edges',
+      store,
+      requiredPackages: ['packages/nonexistent'],
+    });
+    expect(g4Below.decision).toBe('FAIL');
+    expect(g4Below.findings.some((f) => f.ruleId === 'ZERO_TESTS_EXECUTED')).toBe(true);
+    expect(g4Below.findings.some((f) => f.ruleId === 'TEST_FAILURES_PRESENT')).toBe(true);
+    expect(g4Below.findings.some((f) => f.ruleId === 'COVERAGE_BELOW_THRESHOLD')).toBe(true);
+    expect(g4Below.findings.some((f) => f.ruleId === 'PACKAGE_COVERAGE_MISSING')).toBe(true);
+  });
 });
