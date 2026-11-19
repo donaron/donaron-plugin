@@ -46,11 +46,12 @@ donaron-plugin/
 ```bash
 pnpm install        # install & link workspace dependencies
 pnpm build          # compile TypeScript project references (ESM .js + .d.ts)
-pnpm lint           # run ESLint 9 flat config across all packages
+pnpm typecheck      # type-check all source and test TypeScript files (noEmit)
+pnpm lint           # run ESLint 9 flat config (strictTypeChecked) across all packages and tests
 pnpm format:check   # verify Prettier formatting (LF line endings)
-pnpm test           # run Vitest unit & foundation tests
-pnpm test:coverage  # run tests with v8 coverage (minimum 70% lines/stmts/funcs/branches)
-pnpm check          # run build + lint + format:check + test:coverage
+pnpm test           # build workspaces and run Vitest unit & foundation tests
+pnpm test:coverage  # build workspaces and run tests with v8 coverage (minimum 70% lines/stmts/funcs/branches)
+pnpm check          # run build + typecheck + lint + format:check + test:coverage
 pnpm clean          # remove dist/, coverage/, and *.tsbuildinfo artifacts
 ```
 

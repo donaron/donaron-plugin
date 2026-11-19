@@ -7,14 +7,21 @@ export default tseslint.config(
       '**/dist/**',
       '**/coverage/**',
       '**/node_modules/**',
+      '.donaron/**',
       'eslint.config.js',
       'vitest.config.ts',
     ],
   },
   eslint.configs.recommended,
-  ...tseslint.configs.strict,
-  ...tseslint.configs.stylistic,
+  ...tseslint.configs.strictTypeChecked,
+  ...tseslint.configs.stylisticTypeChecked,
   {
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.typecheck.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     rules: {
       '@typescript-eslint/consistent-type-imports': [
         'error',

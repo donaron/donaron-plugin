@@ -43,4 +43,25 @@ describe('Phase 1 build boundaries and deliverables', () => {
       expect(existsSync(resolve(ROOT, relPath)), `Missing Phase 1 doc: ${relPath}`).toBe(true);
     }
   });
+
+  it('type-checks test files via tsconfig.typecheck.json and enables strictTypeChecked ESLint rules', () => {
+    expect(existsSync(resolve(ROOT, 'tsconfig.typecheck.json'))).toBe(true);
+    const rootPkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(rootPkg.scripts?.typecheck).toContain('tsconfig.typecheck.json');
+    expect(rootPkg.scripts?.check).toContain('tsconfig.typecheck.json');
+
+    const eslintConfig = readFileSync(resolve(ROOT, 'eslint.config.js'), 'utf8');
+    expect(eslintConfig).toContain('strictTypeChecked');
+    expect(eslintConfig).toContain('tsconfig.typecheck.json');
+  });
+
+  it('builds workspace project references before running test and test:coverage scripts', () => {
+    const rootPkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(rootPkg.scripts?.test).toMatch(/^tsc --build && vitest run$/);
+    expect(rootPkg.scripts?.['test:coverage']).toMatch(/^tsc --build && vitest run --coverage$/);
+  });
 });

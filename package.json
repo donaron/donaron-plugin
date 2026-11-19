@@ -10,12 +10,13 @@
   "scripts": {
     "clean": "node -e \"const fs=require('node:fs');const p=require('node:path');for(const t of ['coverage','packages/core/dist','packages/core/tsconfig.tsbuildinfo','packages/gates/dist','packages/gates/tsconfig.tsbuildinfo','packages/adapters/dist','packages/adapters/tsconfig.tsbuildinfo','apps/cli/dist','apps/cli/tsconfig.tsbuildinfo']){fs.rmSync(p.resolve(t),{recursive:true,force:true});}\"",
     "build": "tsc --build",
+    "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "check": "tsc --build && eslint . && prettier --check . && vitest run --coverage"
+    "test": "tsc --build && vitest run",
+    "test:coverage": "tsc --build && vitest run --coverage",
+    "check": "tsc --build && tsc -p tsconfig.typecheck.json --noEmit && eslint . && prettier --check . && vitest run --coverage"
   },
   "devDependencies": {
     "@eslint/js": "9.39.2",
