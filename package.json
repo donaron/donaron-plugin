@@ -1,0 +1,30 @@
+{
+  "name": "donaron-plugin-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "clean": "node -e \"const fs=require('node:fs');const p=require('node:path');for(const t of ['coverage','packages/core/dist','packages/core/tsconfig.tsbuildinfo','packages/gates/dist','packages/gates/tsconfig.tsbuildinfo','packages/adapters/dist','packages/adapters/tsconfig.tsbuildinfo','apps/cli/dist','apps/cli/tsconfig.tsbuildinfo']){fs.rmSync(p.resolve(t),{recursive:true,force:true});}\"",
+    "build": "tsc --build",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check": "tsc --build && eslint . && prettier --check . && vitest run --coverage"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.2",
+    "@types/node": "24.10.1",
+    "@vitest/coverage-v8": "3.2.4",
+    "eslint": "9.39.2",
+    "prettier": "3.6.2",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.48.0",
+    "vitest": "3.2.4"
+  }
+}
