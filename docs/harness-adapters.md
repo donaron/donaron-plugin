@@ -6,17 +6,17 @@ This document specifies the shared `HarnessAdapter` contract, the universal hook
 
 ## 1. Implementation Status: Implemented vs. Planned
 
-| Capability | Status | Location / Target Phase |
-| --- | --- | --- |
-| Shared `HarnessAdapter` contract & capability matrix types (`HarnessId`, `SupportLevel`, `HarnessCapabilityMatrix`) | **Implemented (Phase 4)** | `packages/adapters/src/types.ts` |
-| Universal fail-closed hook executor (`executeNormalizedHook`) bridging `@donaron/core` policies & `@donaron/gates` workflows | **Implemented (Phase 4)** | `packages/adapters/src/bridge/hook-executor.ts` |
-| Antigravity native exporter (`AntigravityAdapter`, `< 24,000`-byte `rules/AGENTS.md` compiler, root `hooks.json`, camelCase hook translator) | **Implemented (Phase 4)** | `packages/adapters/src/antigravity/antigravity-adapter.ts` |
+| Capability                                                                                                                                                        | Status                    | Location / Target Phase                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------- |
+| Shared `HarnessAdapter` contract & capability matrix types (`HarnessId`, `SupportLevel`, `HarnessCapabilityMatrix`)                                               | **Implemented (Phase 4)** | `packages/adapters/src/types.ts`                           |
+| Universal fail-closed hook executor (`executeNormalizedHook`) bridging `@donaron/core` policies & `@donaron/gates` workflows                                      | **Implemented (Phase 4)** | `packages/adapters/src/bridge/hook-executor.ts`            |
+| Antigravity native exporter (`AntigravityAdapter`, `< 24,000`-byte `rules/AGENTS.md` compiler, root `hooks.json`, camelCase hook translator)                      | **Implemented (Phase 4)** | `packages/adapters/src/antigravity/antigravity-adapter.ts` |
 | Claude Code native exporter (`ClaudeCodeAdapter`, `.claude-plugin/plugin.json`, `hooks/hooks.json`, `CLAUDE.md`, `haiku`/`sonnet`/`opus` mapper, hook translator) | **Implemented (Phase 4)** | `packages/adapters/src/claude-code/claude-code-adapter.ts` |
-| Adapter registry (`getHarnessAdapter`, `listHarnessAdapters`) & installation provenance ledger (`PluginInstallationRegistry`) | **Implemented (Phase 4)** | `packages/adapters/src/registry/installation-registry.ts` |
-| End-to-end golden export & hook round-trip contract suite | **Implemented (Phase 4)** | `tests/contract/adapters-contract.test.ts` |
-| `donaron` CLI (`doctor`, `plugin`, `export`, `adapter`, `workflow`, `gate`, `hook`) | **Planned (Phase 5)** | `apps/cli` |
-| Flagship personal Node.js + React plugin (`plugins/donaron-dev`) | **Planned (Phase 6)** | `plugins/donaron-dev` |
-| Self-gated verification & complete user/CLI reference docs | **Planned (Phase 7)** | `docs/` |
+| Adapter registry (`getHarnessAdapter`, `listHarnessAdapters`) & installation provenance ledger (`PluginInstallationRegistry`)                                     | **Implemented (Phase 4)** | `packages/adapters/src/registry/installation-registry.ts`  |
+| End-to-end golden export & hook round-trip contract suite                                                                                                         | **Implemented (Phase 4)** | `tests/contract/adapters-contract.test.ts`                 |
+| `donaron` CLI (`doctor`, `plugin`, `export`, `adapter`, `workflow`, `gate`, `hook`)                                                                               | **Planned (Phase 5)**     | `apps/cli`                                                 |
+| Flagship personal Node.js + React plugin (`plugins/donaron-dev`)                                                                                                  | **Planned (Phase 6)**     | `plugins/donaron-dev`                                      |
+| Self-gated verification & complete user/CLI reference docs                                                                                                        | **Planned (Phase 7)**     | `docs/`                                                    |
 
 ---
 
@@ -30,18 +30,18 @@ Every adapter reports one of five explicit support levels for each capability:
 - **`UNSUPPORTED`:** Not supported by the target harness.
 - **`UNVERIFIED`:** Export structure and hook payload translation are verified by automated contract tests, while live runtime execution against the installed external harness binary has not yet been executed in this environment.
 
-| Capability | Google Antigravity (`antigravity`) | Anthropic Claude Code (`claude-code`) |
-| --- | --- | --- |
-| `skills` | `NATIVE` (`skills/<name>/SKILL.md` + `references/` + `scripts/`) | `NATIVE` (`skills/<name>/SKILL.md` + `references/` + `scripts/`) |
-| `rules` | `NATIVE` (`rules/AGENTS.md`, strictly `< 24,000` UTF-8 bytes) | `NATIVE` (`CLAUDE.md`) |
-| `agents` | `NATIVE` (`agents/<name>.md` with `name` + `description` frontmatter) | `NATIVE` (`agents/<name>.md` with `model: haiku\|sonnet\|opus` + `tools`) |
-| `agentPolicyEnforcement` | `PARTIAL` (enforced via `PreToolUse` / `Stop` hook bridge) | `PARTIAL` (enforced via `PreToolUse` / `Stop` hook bridge) |
-| `hooks.sessionStart` | `NATIVE` (root `hooks.json`) | `NATIVE` (`hooks/hooks.json`) |
-| `hooks.preToolUse` | `NATIVE` (root `hooks.json`) | `NATIVE` (`hooks/hooks.json`) |
-| `hooks.postToolUse` | `NATIVE` (root `hooks.json`) | `NATIVE` (`hooks/hooks.json`) |
-| `hooks.stop` | `NATIVE` (root `hooks.json`) | `NATIVE` (`hooks/hooks.json`) |
-| `gates` (Gates 01–05) | `EMULATED` (via `Stop` & `PreToolUse` hook bridge + `.donaron/` store) | `EMULATED` (via `Stop` & `PreToolUse` hook bridge + `.donaron/` store) |
-| `runtimeVerification` | `NATIVE` | `UNVERIFIED` (contract-tested; live `claude.exe` runtime unverified) |
+| Capability               | Google Antigravity (`antigravity`)                                     | Anthropic Claude Code (`claude-code`)                                     |
+| ------------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `skills`                 | `NATIVE` (`skills/<name>/SKILL.md` + `references/` + `scripts/`)       | `NATIVE` (`skills/<name>/SKILL.md` + `references/` + `scripts/`)          |
+| `rules`                  | `NATIVE` (`rules/AGENTS.md`, strictly `< 24,000` UTF-8 bytes)          | `NATIVE` (`CLAUDE.md`)                                                    |
+| `agents`                 | `NATIVE` (`agents/<name>.md` with `name` + `description` frontmatter)  | `NATIVE` (`agents/<name>.md` with `model: haiku\|sonnet\|opus` + `tools`) |
+| `agentPolicyEnforcement` | `PARTIAL` (enforced via `PreToolUse` / `Stop` hook bridge)             | `PARTIAL` (enforced via `PreToolUse` / `Stop` hook bridge)                |
+| `hooks.sessionStart`     | `NATIVE` (root `hooks.json`)                                           | `NATIVE` (`hooks/hooks.json`)                                             |
+| `hooks.preToolUse`       | `NATIVE` (root `hooks.json`)                                           | `NATIVE` (`hooks/hooks.json`)                                             |
+| `hooks.postToolUse`      | `NATIVE` (root `hooks.json`)                                           | `NATIVE` (`hooks/hooks.json`)                                             |
+| `hooks.stop`             | `NATIVE` (root `hooks.json`)                                           | `NATIVE` (`hooks/hooks.json`)                                             |
+| `gates` (Gates 01–05)    | `EMULATED` (via `Stop` & `PreToolUse` hook bridge + `.donaron/` store) | `EMULATED` (via `Stop` & `PreToolUse` hook bridge + `.donaron/` store)    |
+| `runtimeVerification`    | `NATIVE`                                                               | `UNVERIFIED` (contract-tested; live `claude.exe` runtime unverified)      |
 
 > **Note:** Codex, Cursor, and GitHub Copilot are intentionally excluded in v1 (`Non-Goals`); zero fake stubs are shipped.
 
@@ -135,6 +135,7 @@ node "<cliEntryPath>" hook <antigravity|claude-code> <SessionStart|PreToolUse|Po
 ## 5. Installation Provenance Registry (`PluginInstallationRegistry`)
 
 `PluginInstallationRegistry` (`packages/adapters/src/registry/installation-registry.ts`) persists a versioned JSON ledger (`registry.json`, typically `~/.donaron/registry.json`) recording every installed plugin's:
+
 - `harnessId` (`'antigravity' | 'claude-code'`)
 - `pluginId`, `pluginName`, `version`
 - `installedPath`

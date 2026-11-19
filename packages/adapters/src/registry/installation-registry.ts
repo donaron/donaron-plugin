@@ -40,9 +40,11 @@ export class PluginInstallationRegistry {
       return [];
     }
     try {
-      const parsed = JSON.parse(readFileSync(this.registryFilePath, 'utf8')) as RegistryFileFormat;
+      const parsed = JSON.parse(readFileSync(this.registryFilePath, 'utf8')) as {
+        readonly installations?: unknown;
+      };
       if (Array.isArray(parsed.installations)) {
-        return [...parsed.installations];
+        return [...(parsed.installations as InstalledPluginReceipt[])];
       }
     } catch {
       // treat missing/corrupt registry as empty
