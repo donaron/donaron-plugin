@@ -106,9 +106,7 @@ describe('Phase 7 Self-Gated Verification & Lifecycle Release Checks', () => {
 
   it('scans the live donaron-plugin repository with zero leaked secrets outside unit test fixture strings', () => {
     const secretFindings = scanWorkspaceForSecrets(ROOT);
-    const nonTestFindings = secretFindings.filter(
-      (finding) => !finding.file?.endsWith('.test.ts'),
-    );
+    const nonTestFindings = secretFindings.filter((finding) => !finding.file?.endsWith('.test.ts'));
     expect(nonTestFindings).toEqual([]);
   });
 
