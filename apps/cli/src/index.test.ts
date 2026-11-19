@@ -49,7 +49,10 @@ describe('@donaron/cli baseline', () => {
 
   it('executes compiled dist/cli.js directly with Node ESM resolution', () => {
     expect(existsSync(CLI_DIST)).toBe(true);
-    const proc = spawnSync(process.execPath, [CLI_DIST, '--version'], { encoding: 'utf8' });
+    const proc = spawnSync(process.execPath, [CLI_DIST, '--version'], {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_V8_COVERAGE: '' },
+    });
     expect(proc.status).toBe(0);
     expect(proc.stdout).toBe(`donaron ${DONARON_CLI_VERSION}\n`);
     expect(proc.stderr).toBe('');

@@ -288,11 +288,13 @@ describe('Phase 5 E2E CLI Workflow & Subprocess Hook Bridge on Node + React Fixt
   it('executes compiled dist/cli.js hook bridge in a real Node subprocess and fails closed on malformed stdin or policy violations', () => {
     const repo = createTempDir();
     mkdirSync(join(repo, 'src'), { recursive: true });
+    const childEnv = { ...process.env, NODE_V8_COVERAGE: '' };
 
     // 1. Malformed JSON stdin on PreToolUse fails closed with native deny/block JSON
     const badAgy = spawnSync(process.execPath, [CLI_DIST, 'hook', 'antigravity', 'PreToolUse'], {
       input: '{malformed-json',
       encoding: 'utf8',
+      env: childEnv,
     });
     expect(badAgy.status).toBe(0);
     expect(JSON.parse(badAgy.stdout)).toMatchObject({ decision: 'deny' });
@@ -300,6 +302,7 @@ describe('Phase 5 E2E CLI Workflow & Subprocess Hook Bridge on Node + React Fixt
     const badCc = spawnSync(process.execPath, [CLI_DIST, 'hook', 'claude-code', 'PreToolUse'], {
       input: '{malformed-json',
       encoding: 'utf8',
+      env: childEnv,
     });
     expect(badCc.status).toBe(0);
     expect(JSON.parse(badCc.stdout)).toMatchObject({ decision: 'block' });
@@ -317,6 +320,7 @@ describe('Phase 5 E2E CLI Workflow & Subprocess Hook Bridge on Node + React Fixt
           },
         }),
         encoding: 'utf8',
+        env: childEnv,
       },
     );
     expect(writeDonaron.status).toBe(0);
@@ -332,6 +336,7 @@ describe('Phase 5 E2E CLI Workflow & Subprocess Hook Bridge on Node + React Fixt
         },
       }),
       encoding: 'utf8',
+      env: childEnv,
     });
     expect(safeWrite.status).toBe(0);
     expect(JSON.parse(safeWrite.stdout)).toEqual({ decision: 'allow' });

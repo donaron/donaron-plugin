@@ -27,11 +27,12 @@ donaron-plugin/
 │   ├── gates/            # @donaron/gates — scoped hashing, evidence store, Gates 01–05, strict orchestrator (Implemented)
 │   └── adapters/         # @donaron/adapters — shared contract, Antigravity & Claude Code exporters and hook bridge (Implemented)
 ├── apps/
-│   └── cli/              # @donaron/cli — thin CLI & hook bridge entrypoint (Phase 5 Planned)
+│   └── cli/              # @donaron/cli — full donaron CLI & live stdin/stdout hook bridge (Implemented)
 ├── plugins/
 │   └── donaron-dev/      # Personal Node + React plugin source bundle (Phase 6 Planned)
 ├── tests/
 │   ├── contract/         # Adapter golden export & live hook round-trip contract tests (Phase 4)
+│   ├── e2e/              # E2E CLI & subprocess hook bridge tests on Node+React fixture (Phase 5)
 │   ├── fixtures/         # Valid & invalid plugin fixtures (Phase 2)
 │   └── foundation/       # Phase 1 repo hygiene & build boundary checks
 └── docs/
@@ -41,13 +42,15 @@ donaron-plugin/
     ├── manifest-schema.md
     ├── gates-and-workflows.md
     ├── harness-adapters.md
+    ├── cli-reference.md
     └── superpowers/
         ├── specs/2026-11-19-donaron-plugin-design.md
         └── plans/
             ├── 2026-11-19-phase-1-foundation.md
             ├── 2026-11-19-phase-2-core-engine.md
             ├── 2026-11-19-phase-3-gate-engine.md
-            └── 2026-11-19-phase-4-harness-adapters.md
+            ├── 2026-11-19-phase-4-harness-adapters.md
+            └── 2026-11-19-phase-5-cli-and-hooks.md
 ```
 
 ## Prerequisites & Local Commands
@@ -75,7 +78,9 @@ pnpm clean          # remove dist/, coverage/, and *.tsbuildinfo artifacts
 - [Manifest Schema Reference (v1)](docs/manifest-schema.md)
 - [Gates and Workflows (`@donaron/gates`)](docs/gates-and-workflows.md)
 - [Harness Adapters (`@donaron/adapters`)](docs/harness-adapters.md)
+- [CLI & Hook Bridge Reference (`@donaron/cli`)](docs/cli-reference.md)
 - [Approved System Design Document](docs/superpowers/specs/2026-11-19-donaron-plugin-design.md)
 - [Phase 2 Core Engine Implementation Plan](docs/superpowers/plans/2026-11-19-phase-2-core-engine.md)
 - [Phase 3 Gate Engine Implementation Plan](docs/superpowers/plans/2026-11-19-phase-3-gate-engine.md)
 - [Phase 4 Harness Adapters Implementation Plan](docs/superpowers/plans/2026-11-19-phase-4-harness-adapters.md)
+- [Phase 5 CLI & Hook Bridge Implementation Plan](docs/superpowers/plans/2026-11-19-phase-5-cli-and-hooks.md)

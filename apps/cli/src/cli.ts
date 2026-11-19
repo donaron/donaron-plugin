@@ -16,7 +16,9 @@ if (argv[0] === 'hook') {
 const result = runCli(argv, {
   cwd: process.cwd(),
   stdin,
-  isInteractiveTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  isInteractiveTty:
+    (process.stdin.isTTY as boolean | undefined) === true &&
+    (process.stdout.isTTY as boolean | undefined) === true,
   cliEntryPath: resolve(import.meta.dirname, 'cli.js'),
 });
 

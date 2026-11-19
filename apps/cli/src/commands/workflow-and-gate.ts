@@ -58,7 +58,7 @@ function normalizeGateId(raw: string): GateId | undefined {
 function createDefaultPretestRunner(): PretestCheckRunner {
   return {
     runTypecheck(workspaceRoot: string) {
-      const proc = spawnSync('pnpm', ['run', 'typecheck'], {
+      const proc = spawnSync('pnpm run typecheck', {
         cwd: workspaceRoot,
         encoding: 'utf8',
         shell: true,
@@ -70,7 +70,7 @@ function createDefaultPretestRunner(): PretestCheckRunner {
       };
     },
     runLint(workspaceRoot: string) {
-      const proc = spawnSync('pnpm', ['run', 'lint'], {
+      const proc = spawnSync('pnpm run lint', {
         cwd: workspaceRoot,
         encoding: 'utf8',
         shell: true,

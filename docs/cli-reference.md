@@ -6,18 +6,18 @@ This document specifies the `donaron` command-line interface and live harness ho
 
 ## 1. Implementation Status: Implemented vs. Planned
 
-| Capability | Status | Location / Target Phase |
-| --- | --- | --- |
-| `donaron doctor [--json]` diagnostics | **Implemented (Phase 5)** | `apps/cli/src/commands/doctor-and-adapter.ts` |
-| `donaron adapter capabilities [antigravity\|claude-code] [--json]` | **Implemented (Phase 5)** | `apps/cli/src/commands/doctor-and-adapter.ts` |
-| `donaron plugin <validate\|info\|list\|install\|uninstall> [--json]` | **Implemented (Phase 5)** | `apps/cli/src/commands/plugin-and-export.ts` |
-| `donaron export <dir> --target <antigravity\|claude-code> --out <dir>` | **Implemented (Phase 5)** | `apps/cli/src/commands/plugin-and-export.ts` |
-| `donaron workflow <start\|status\|advance\|register-author\|record-review>` | **Implemented (Phase 5)** | `apps/cli/src/commands/workflow-and-gate.ts` |
-| `donaron gate <run\|status\|override>` (with TTY & critical-security guards) | **Implemented (Phase 5)** | `apps/cli/src/commands/workflow-and-gate.ts` |
-| `donaron hook <antigravity\|claude-code> <SessionStart\|PreToolUse\|PostToolUse\|Stop>` | **Implemented (Phase 5)** | `apps/cli/src/commands/hook-command.ts` |
-| End-to-end Node.js + React CLI workflow & subprocess hook bridge suite | **Implemented (Phase 5)** | `tests/e2e/cli-workflow-e2e.test.ts` |
-| Flagship personal Node.js + React plugin (`plugins/donaron-dev`) | **Planned (Phase 6)** | `plugins/donaron-dev` |
-| Self-gated verification & installation/troubleshooting docs | **Planned (Phase 7)** | `docs/` |
+| Capability                                                                              | Status                    | Location / Target Phase                       |
+| --------------------------------------------------------------------------------------- | ------------------------- | --------------------------------------------- |
+| `donaron doctor [--json]` diagnostics                                                   | **Implemented (Phase 5)** | `apps/cli/src/commands/doctor-and-adapter.ts` |
+| `donaron adapter capabilities [antigravity\|claude-code] [--json]`                      | **Implemented (Phase 5)** | `apps/cli/src/commands/doctor-and-adapter.ts` |
+| `donaron plugin <validate\|info\|list\|install\|uninstall> [--json]`                    | **Implemented (Phase 5)** | `apps/cli/src/commands/plugin-and-export.ts`  |
+| `donaron export <dir> --target <antigravity\|claude-code> --out <dir>`                  | **Implemented (Phase 5)** | `apps/cli/src/commands/plugin-and-export.ts`  |
+| `donaron workflow <start\|status\|advance\|register-author\|record-review>`             | **Implemented (Phase 5)** | `apps/cli/src/commands/workflow-and-gate.ts`  |
+| `donaron gate <run\|status\|override>` (with TTY & critical-security guards)            | **Implemented (Phase 5)** | `apps/cli/src/commands/workflow-and-gate.ts`  |
+| `donaron hook <antigravity\|claude-code> <SessionStart\|PreToolUse\|PostToolUse\|Stop>` | **Implemented (Phase 5)** | `apps/cli/src/commands/hook-command.ts`       |
+| End-to-end Node.js + React CLI workflow & subprocess hook bridge suite                  | **Implemented (Phase 5)** | `tests/e2e/cli-workflow-e2e.test.ts`          |
+| Flagship personal Node.js + React plugin (`plugins/donaron-dev`)                        | **Planned (Phase 6)**     | `plugins/donaron-dev`                         |
+| Self-gated verification & installation/troubleshooting docs                             | **Planned (Phase 7)**     | `docs/`                                       |
 
 ---
 
@@ -41,6 +41,7 @@ donaron doctor [--json]
 ```
 
 Inspects the local environment and reports:
+
 - Node.js runtime version and OS platform
 - Active workspace root (`process.cwd()`)
 - Loaded workspace modules (`@donaron/core`, `@donaron/gates`, `@donaron/adapters`)
@@ -118,6 +119,7 @@ donaron hook <antigravity|claude-code> <SessionStart|PreToolUse|PostToolUse|Stop
 ```
 
 Invoked automatically by native Antigravity (`hooks.json`) and Claude Code (`hooks/hooks.json`) lifecycle hooks:
+
 1. Reads the harness-native JSON payload from `stdin` (fd `0`).
 2. Translates `stdin` via `adapter.translateHookInput(event, rawStdin)`. If `stdin` is malformed JSON, fails closed by emitting a harness-native `deny` / `block` payload on `PreToolUse` or `allow_stop` payload on `Stop`.
 3. Executes `executeNormalizedHook` (enforcing Choice 1A `.donaron/**` & override guards, Choice 2A global hazard guards even in non-workflow repos, custom `.donaron/policy.json` rules, and `Stop` gate completion checks with `continuationActive` loop protection).

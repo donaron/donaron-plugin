@@ -14,6 +14,7 @@ import {
 import { handleAdapterCommand, handleDoctorCommand } from './doctor-and-adapter.js';
 import { handleExportCommand, handlePluginCommand } from './plugin-and-export.js';
 import { handleGateCommand, handleWorkflowCommand } from './workflow-and-gate.js';
+import { runCli } from '../index.js';
 
 const tempDirs: string[] = [];
 
@@ -457,5 +458,103 @@ describe('CLI Arg Parser, Doctor, and Adapter Capabilities Commands', () => {
 
     const gateStatus = handleGateCommand(parseCliArgs(['gate', 'status', '--json']), ctx);
     expect(gateStatus.exitCode).toBe(0);
+  });
+
+  it('dispatches all top-level subcommands through runCli and covers fail-closed validation and hook branches in-process', () => {
+    const root = createTempDir();
+    const emptyRoot = createTempDir();
+    const ctx = {
+      cwd: root,
+      registryFilePath: join(root, 'registry.json'),
+      antigravityPluginsDir: join(root, 'agy'),
+      claudePluginsDir: join(root, 'cc'),
+    };
+
+    // Flag shortcuts via runCli
+    expect(runCli(['doctor', '--version'], ctx).exitCode).toBe(0);
+    expect(runCli(['doctor', '--help'], ctx).exitCode).toBe(0);
+    expect(runCli(['doctor', '-y'], ctx).exitCode).toBe(0);
+    expect(runCli(['adapter', 'capabilities'], ctx).exitCode).toBe(0);
+
+    // Hook command in-process branches (invalid args, malformed stdin across PreToolUse/Stop/SessionStart, valid payload)
+    expect(runCli(['hook', 'invalid', 'PreToolUse'], ctx).exitCode).toBe(1);
+    const badPre = runCli(['hook', 'antigravity', 'PreToolUse'], {
+      ...ctx,
+      stdin: '{bad-json',
+    });
+    expect(badPre.exitCode).toBe(0);
+    expect(JSON.parse(badPre.stdout)).toMatchObject({ decision: 'deny' });
+
+    const badStop = runCli(['hook', 'antigravity', 'Stop'], {
+      ...ctx,
+      stdin: '{bad-json',
+    });
+    expect(badStop.exitCode).toBe(0);
+    expect(JSON.parse(badStop.stdout)).toEqual({ decision: '' });
+
+    const badSession = runCli(['hook', 'antigravity', 'SessionStart'], {
+      ...ctx,
+      stdin: '{bad-json',
+    });
+    expect(badSession.exitCode).toBe(0);
+    expect(JSON.parse(badSession.stdout)).toEqual({});
+
+    // Plugin & export error branches via runCli
+    expect(runCli(['plugin', 'validate'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'info'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'info', join(root, 'nonexistent')], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'list', '--target', 'bad'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'list'], ctx).exitCode).toBe(0);
+    expect(runCli(['plugin', 'install'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'install', root, '--target', 'bad'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'install', join(root, 'nonexistent'), '--yes'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'uninstall'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'uninstall', 'foo', '--target', 'bad'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'uninstall', 'not-installed'], ctx).exitCode).toBe(1);
+    expect(runCli(['plugin', 'unknown'], ctx).exitCode).toBe(1);
+
+    expect(runCli(['export'], ctx).exitCode).toBe(1);
+    expect(
+      runCli(['export', root, '--target', 'bad', '--out', join(root, 'o')], ctx).exitCode,
+    ).toBe(1);
+    expect(
+      runCli(
+        ['export', join(root, 'nonexistent'), '--target', 'antigravity', '--out', join(root, 'o')],
+        ctx,
+      ).exitCode,
+    ).toBe(1);
+
+    // Workflow & gate error branches on empty workspace
+    const emptyCtx = {
+      cwd: emptyRoot,
+      pretestRunner: {
+        runTypecheck: () => ({ passed: true, output: 'ok' }),
+        runLint: () => ({ passed: true, output: 'ok' }),
+      },
+    };
+    expect(runCli(['workflow', 'start', '--tier', 'invalid'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['workflow', 'status'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['workflow', 'advance'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['workflow', 'advance', 'PLANNING'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['workflow', 'register-author'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['workflow', 'record-review'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['workflow', 'unknown'], emptyCtx).exitCode).toBe(1);
+
+    expect(runCli(['gate', 'run'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['gate', 'status'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['gate', 'override'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['gate', 'unknown'], emptyCtx).exitCode).toBe(1);
+
+    // Start a quick workflow in emptyRoot and run `gate run all` + `gate run 03 --offline-waiver` + `gate run bad`
+    expect(
+      runCli(['workflow', 'start', '--run-id', 'r-quick', '--tier', 'quick'], emptyCtx).exitCode,
+    ).toBe(0);
+    expect(runCli(['gate', 'run', 'unknown-gate'], emptyCtx).exitCode).toBe(1);
+    expect(
+      runCli(['gate', 'run', '03', '--offline-waiver', 'Air-gapped test'], emptyCtx).exitCode,
+    ).toBe(0);
+    expect(runCli(['gate', 'run', 'all'], emptyCtx).exitCode).toBe(1);
+    expect(runCli(['workflow', 'status'], emptyCtx).exitCode).toBe(0);
+    expect(runCli(['gate', 'status'], emptyCtx).exitCode).toBe(0);
   });
 });
