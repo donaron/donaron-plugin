@@ -11,7 +11,7 @@ Documentation explicitly separates implemented behavior from planned phases:
 | **Phase 1** | pnpm TypeScript ESM monorepo foundation, 5-module boundaries, build/lint/format/test/coverage toolchain, architecture & decision log      | **Implemented** |
 | **Phase 2** | Universal manifest v1 schema (Ajv), path-safe loaders, deterministic fail-closed policy engine, secret-redacting logger (`@donaron/core`) | **Implemented** |
 | **Phase 3** | Scoped `planHash`/`codeHash` Evidence Store, Gates 01–05, `strict` default workflow state machine (`@donaron/gates`)                      | **Implemented** |
-| **Phase 4** | Harness adapter contract + Antigravity and Claude Code exporters & hook payload translators (`@donaron/adapters`)                         | Planned         |
+| **Phase 4** | Harness adapter contract + Antigravity and Claude Code exporters & hook payload translators (`@donaron/adapters`)                         | **Implemented** |
 | **Phase 5** | Full `donaron` CLI (`doctor`, `plugin`, `export`, `adapter`, `workflow`, `gate`, `hook`) (`@donaron/cli`)                                 | Planned         |
 | **Phase 6** | Flagship Node + React plugin bundle (`plugins/donaron-dev`) + live Antigravity smoke verification                                         | Planned         |
 | **Phase 7** | Security hardening, self-gated Gates 01–05 verification, and complete reference docs                                                      | Planned         |
@@ -25,12 +25,13 @@ donaron-plugin/
 ├── packages/
 │   ├── core/             # @donaron/core — schema, safe loaders, parsers, policy engine, redacting logger (Implemented)
 │   ├── gates/            # @donaron/gates — scoped hashing, evidence store, Gates 01–05, strict orchestrator (Implemented)
-│   └── adapters/         # @donaron/adapters — depends on @donaron/core, @donaron/gates (Phase 4 Planned)
+│   └── adapters/         # @donaron/adapters — shared contract, Antigravity & Claude Code exporters and hook bridge (Implemented)
 ├── apps/
 │   └── cli/              # @donaron/cli — thin CLI & hook bridge entrypoint (Phase 5 Planned)
 ├── plugins/
 │   └── donaron-dev/      # Personal Node + React plugin source bundle (Phase 6 Planned)
 ├── tests/
+│   ├── contract/         # Adapter golden export & live hook round-trip contract tests (Phase 4)
 │   ├── fixtures/         # Valid & invalid plugin fixtures (Phase 2)
 │   └── foundation/       # Phase 1 repo hygiene & build boundary checks
 └── docs/
@@ -39,12 +40,14 @@ donaron-plugin/
     ├── plugin-specification.md
     ├── manifest-schema.md
     ├── gates-and-workflows.md
+    ├── harness-adapters.md
     └── superpowers/
         ├── specs/2026-11-19-donaron-plugin-design.md
         └── plans/
             ├── 2026-11-19-phase-1-foundation.md
             ├── 2026-11-19-phase-2-core-engine.md
-            └── 2026-11-19-phase-3-gate-engine.md
+            ├── 2026-11-19-phase-3-gate-engine.md
+            └── 2026-11-19-phase-4-harness-adapters.md
 ```
 
 ## Prerequisites & Local Commands
@@ -71,6 +74,8 @@ pnpm clean          # remove dist/, coverage/, and *.tsbuildinfo artifacts
 - [Universal Plugin Specification (v1)](docs/plugin-specification.md)
 - [Manifest Schema Reference (v1)](docs/manifest-schema.md)
 - [Gates and Workflows (`@donaron/gates`)](docs/gates-and-workflows.md)
+- [Harness Adapters (`@donaron/adapters`)](docs/harness-adapters.md)
 - [Approved System Design Document](docs/superpowers/specs/2026-11-19-donaron-plugin-design.md)
 - [Phase 2 Core Engine Implementation Plan](docs/superpowers/plans/2026-11-19-phase-2-core-engine.md)
 - [Phase 3 Gate Engine Implementation Plan](docs/superpowers/plans/2026-11-19-phase-3-gate-engine.md)
+- [Phase 4 Harness Adapters Implementation Plan](docs/superpowers/plans/2026-11-19-phase-4-harness-adapters.md)
