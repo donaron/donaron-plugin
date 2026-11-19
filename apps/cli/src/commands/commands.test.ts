@@ -13,6 +13,7 @@ import {
 } from '../args.js';
 import { handleAdapterCommand, handleDoctorCommand } from './doctor-and-adapter.js';
 import { handleExportCommand, handlePluginCommand } from './plugin-and-export.js';
+import { handleGateCommand, handleWorkflowCommand } from './workflow-and-gate.js';
 
 const tempDirs: string[] = [];
 
@@ -239,5 +240,222 @@ describe('CLI Arg Parser, Doctor, and Adapter Capabilities Commands', () => {
     expect(
       (JSON.parse(listAfter.stdout) as { installations: unknown[] }).installations,
     ).toHaveLength(1);
+  });
+
+  it('orchestrates strict 5-gate workflow commands and enforces anti-self-approval, tier downgrade guards, and TTY override guards', () => {
+    const root = createTempDir();
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'coverage'), { recursive: true });
+    writeFileSync(
+      join(root, 'docs', 'plan.md'),
+      `# Plan\n## Requirements\nR\n## Specification\nS\n## Architecture\nA\n## Task Plan\nT\n## Acceptance Criteria\nC\n`,
+      'utf8',
+    );
+    writeFileSync(join(root, 'src', 'App.tsx'), 'export const App = () => "Hello";\n', 'utf8');
+
+    const ctx = {
+      cwd: root,
+      pretestRunner: {
+        runTypecheck: () => ({ passed: true, output: 'tsc OK' }),
+        runLint: () => ({ passed: true, output: 'eslint OK' }),
+      },
+      auditSummary: {
+        executed: true,
+        criticalCount: 0,
+        highCount: 0,
+        moderateCount: 0,
+        lowCount: 0,
+      },
+      testRun: {
+        totalTests: 5,
+        passedTests: 5,
+        failedTests: 0,
+        skippedTests: 0,
+      },
+    };
+
+    // 1. Agent cannot start quick tier
+    const agentQuick = handleWorkflowCommand(
+      parseCliArgs([
+        'workflow',
+        'start',
+        '--run-id',
+        'run-bad',
+        '--task',
+        'Quick bypass',
+        '--tier',
+        'quick',
+        '--actor',
+        'agent',
+        '--json',
+      ]),
+      ctx,
+    );
+    expect(agentQuick.exitCode).toBe(1);
+    expect(agentQuick.stdout).toContain('TIER_DOWNGRADE_FORBIDDEN');
+
+    // 2. Start strict workflow
+    const started = handleWorkflowCommand(
+      parseCliArgs([
+        'workflow',
+        'start',
+        '--run-id',
+        'run-cli-1',
+        '--task',
+        'Build React dashboard',
+        '--plan',
+        'docs/plan.md',
+        '--json',
+      ]),
+      ctx,
+    );
+    expect(started.exitCode).toBe(0);
+
+    // 3. Register authors and test anti-self-approval via CLI
+    expect(
+      handleWorkflowCommand(
+        parseCliArgs([
+          'workflow',
+          'register-author',
+          '--kind',
+          'plan',
+          '--actor-id',
+          'planner-1',
+          '--json',
+        ]),
+        ctx,
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      handleWorkflowCommand(
+        parseCliArgs([
+          'workflow',
+          'register-author',
+          '--kind',
+          'code',
+          '--actor-id',
+          'dev-1',
+          '--json',
+        ]),
+        ctx,
+      ).exitCode,
+    ).toBe(0);
+
+    const selfReview = handleWorkflowCommand(
+      parseCliArgs([
+        'workflow',
+        'record-review',
+        '--gate',
+        'GATE_01',
+        '--role',
+        'intake-reviewer',
+        '--reviewer-id',
+        'planner-1',
+        '--approved',
+        '--summary',
+        'Self approval attempt',
+        '--json',
+      ]),
+      ctx,
+    );
+    expect(selfReview.exitCode).toBe(1);
+    expect(selfReview.stdout).toContain('SELF_APPROVAL_FORBIDDEN');
+
+    // 4. Record independent reviews for Gate 01 and run Gate 01
+    expect(
+      handleWorkflowCommand(
+        parseCliArgs([
+          'workflow',
+          'record-review',
+          '--gate',
+          'GATE_01',
+          '--role',
+          'intake-reviewer',
+          '--reviewer-id',
+          'intake-1',
+          '--approved',
+          '--summary',
+          'Intake approved',
+        ]),
+        ctx,
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      handleWorkflowCommand(
+        parseCliArgs([
+          'workflow',
+          'record-review',
+          '--gate',
+          'GATE_01',
+          '--role',
+          'solutions-architect',
+          '--reviewer-id',
+          'arch-1',
+          '--approved',
+          '--summary',
+          'Architecture approved',
+        ]),
+        ctx,
+      ).exitCode,
+    ).toBe(0);
+
+    expect(
+      handleWorkflowCommand(parseCliArgs(['workflow', 'advance', 'PLANNING']), ctx).exitCode,
+    ).toBe(0);
+    expect(
+      handleWorkflowCommand(parseCliArgs(['workflow', 'advance', 'GATE_01']), ctx).exitCode,
+    ).toBe(0);
+
+    const g1Run = handleGateCommand(parseCliArgs(['gate', 'run', '01', '--json']), ctx);
+    expect(g1Run.exitCode).toBe(0);
+
+    expect(
+      handleWorkflowCommand(parseCliArgs(['workflow', 'advance', 'IMPLEMENTATION']), ctx).exitCode,
+    ).toBe(0);
+
+    // 5. Gate 02 fail -> test non-TTY override rejection -> then TTY human override
+    const g2Fail = handleGateCommand(parseCliArgs(['gate', 'run', '02', '--json']), ctx);
+    expect(g2Fail.exitCode).toBe(1);
+
+    const nonTtyOverride = handleGateCommand(
+      parseCliArgs([
+        'gate',
+        'override',
+        'GATE_02',
+        '--reason',
+        'Attempt from non-TTY agent',
+        '--approver',
+        'bot',
+        '--yes',
+        '--json',
+      ]),
+      { ...ctx, isInteractiveTty: false },
+    );
+    expect(nonTtyOverride.exitCode).toBe(1);
+
+    const ttyOverride = handleGateCommand(
+      parseCliArgs([
+        'gate',
+        'override',
+        'GATE_02',
+        '--reason',
+        'Approved pre-test waiver in interactive terminal',
+        '--approver',
+        'jay-r',
+        '--yes',
+        '--json',
+      ]),
+      { ...ctx, isInteractiveTty: true, actorType: 'human' },
+    );
+    expect(ttyOverride.exitCode).toBe(0);
+
+    // 6. Status commands (workflow status & gate status)
+    const wfStatus = handleWorkflowCommand(parseCliArgs(['workflow', 'status', '--json']), ctx);
+    expect(wfStatus.exitCode).toBe(0);
+    expect((JSON.parse(wfStatus.stdout) as { runId: string }).runId).toBe('run-cli-1');
+
+    const gateStatus = handleGateCommand(parseCliArgs(['gate', 'status', '--json']), ctx);
+    expect(gateStatus.exitCode).toBe(0);
   });
 });
