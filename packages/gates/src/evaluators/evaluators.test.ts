@@ -6,6 +6,14 @@ import { computeCodeHash, computePlanHash } from '../hashing/scoped-hash.js';
 import { EvidenceStore } from '../store/evidence-store.js';
 import { evaluateGate01Planning } from './gate01-planning.js';
 import { evaluateGate02Pretest, type PretestCheckRunner } from './gate02-pretest.js';
+import {
+  detectAiApplication,
+  evaluateGate03Security,
+  parseDependencyAuditJson,
+  PINNED_OWASP_LLM_TOP_10_VERSION,
+  PINNED_OWASP_TOP_10_VERSION,
+  scanWorkspaceForSecrets,
+} from './gate03-security.js';
 
 const tempDirs: string[] = [];
 
@@ -257,5 +265,143 @@ describe('Gate 01 (Planning Document Review) & Gate 02 (Pre-Test Code Review)', 
     });
     expect(passDecision.decision).toBe('PASS');
     expect(passDecision.codeHash).toBe(codeHashRes.value.codeHash);
+  });
+
+  it('Gate 03 scans secrets without leaking raw values, parses audit JSON, detects AI apps, and enforces pinned OWASP checklists', () => {
+    const root = createTempWorkspace();
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'docs', 'plan.md'), COMPLETE_PLAN_MD, 'utf8');
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ dependencies: { openai: '^4.0.0' } }),
+      'utf8',
+    );
+    const leakedKey = 'sk-ant-api03-secretvalue1234567890abcd';
+    writeFileSync(join(root, 'src', 'config.ts'), `export const KEY = "${leakedKey}";\n`, 'utf8');
+
+    expect(detectAiApplication(root)).toBe(true);
+
+    const secretFindings = scanWorkspaceForSecrets(root);
+    expect(secretFindings).toHaveLength(1);
+    expect(secretFindings[0]?.severity).toBe('critical');
+    expect(secretFindings[0]?.file).toBe('src/config.ts');
+    expect(secretFindings[0]?.line).toBe(1);
+    expect(secretFindings[0]?.message).not.toContain(leakedKey);
+
+    // Audit JSON parsing
+    const parsedAudit = parseDependencyAuditJson(
+      JSON.stringify({
+        metadata: { vulnerabilities: { critical: 0, high: 0, moderate: 1, low: 2 } },
+      }),
+    );
+    expect(parsedAudit).toEqual({
+      ok: true,
+      value: {
+        executed: true,
+        criticalCount: 0,
+        highCount: 0,
+        moderateCount: 1,
+        lowCount: 2,
+      },
+    });
+    expect(parseDependencyAuditJson('not-json').ok).toBe(false);
+
+    const store = new EvidenceStore(root);
+    store.initRun({
+      runId: 'run-g3',
+      tier: 'strict',
+      taskDescription: 'Gate 3 test',
+      planFiles: ['docs/plan.md'],
+      actorId: 'user-1',
+    });
+
+    // 1. Leaked secret produces hard FAIL with critical finding
+    const secretFailRes = evaluateGate03Security({
+      workspaceRoot: root,
+      runId: 'run-g3',
+      store,
+      auditSummary: {
+        executed: true,
+        criticalCount: 0,
+        highCount: 0,
+        moderateCount: 0,
+        lowCount: 0,
+      },
+    });
+    expect(secretFailRes.decision).toBe('FAIL');
+    expect(secretFailRes.findings.some((f) => f.severity === 'critical')).toBe(true);
+
+    // 2. Remove leaked secret; unexecuted audit without waiver -> BLOCKED
+    writeFileSync(join(root, 'src', 'config.ts'), 'export const KEY = "safe";\n', 'utf8');
+    const blockedRes = evaluateGate03Security({
+      workspaceRoot: root,
+      runId: 'run-g3',
+      store,
+    });
+    expect(blockedRes.decision).toBe('BLOCKED');
+
+    const codeHashRes = computeCodeHash(root, { planFiles: ['docs/plan.md'] });
+    if (!codeHashRes.ok) return;
+
+    // Review missing OWASP-LLM-Top-10:2025 -> FAIL
+    store.recordReview({
+      gateId: 'GATE_03',
+      runId: 'run-g3',
+      role: 'code-reviewer',
+      evaluator: { type: 'agent', id: 'sec-1' },
+      approved: true,
+      summary: 'Checked web OWASP only',
+      findings: [],
+      codeHash: codeHashRes.value.codeHash,
+      checklistVersions: [PINNED_OWASP_TOP_10_VERSION],
+      scope: 'src/**',
+      limitations: 'Static review only',
+      timestamp: '2026-11-19T00:00:00.000Z',
+    });
+
+    const missingLlmDecision = evaluateGate03Security({
+      workspaceRoot: root,
+      runId: 'run-g3',
+      store,
+      auditSummary: {
+        executed: true,
+        criticalCount: 0,
+        highCount: 0,
+        moderateCount: 0,
+        lowCount: 0,
+      },
+    });
+    expect(missingLlmDecision.decision).toBe('FAIL');
+
+    // Record review with BOTH pinned checklists + scope + limitations -> PASS
+    store.recordReview({
+      gateId: 'GATE_03',
+      runId: 'run-g3',
+      role: 'code-reviewer',
+      evaluator: { type: 'agent', id: 'sec-1' },
+      approved: true,
+      summary: 'Full OWASP + LLM security check passed',
+      findings: [],
+      codeHash: codeHashRes.value.codeHash,
+      checklistVersions: [PINNED_OWASP_TOP_10_VERSION, PINNED_OWASP_LLM_TOP_10_VERSION],
+      scope: 'src/**',
+      limitations: 'Static review + npm audit',
+      timestamp: '2026-11-19T00:01:00.000Z',
+    });
+
+    const passDecision = evaluateGate03Security({
+      workspaceRoot: root,
+      runId: 'run-g3',
+      store,
+      auditSummary: {
+        executed: true,
+        criticalCount: 0,
+        highCount: 0,
+        moderateCount: 1,
+        lowCount: 0,
+      },
+    });
+    expect(passDecision.decision).toBe('PASS');
   });
 });
