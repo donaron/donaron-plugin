@@ -706,6 +706,54 @@ describe('loadPlugin', () => {
     }
   });
 
+  it('returns FILE_READ_ERROR instead of throwing when computePluginDigest fails on an unreadable asset', async () => {
+    const workspace = createTempDir('donaron-load-unreadable-');
+    const pluginRoot = join(workspace, 'plugin');
+    writePluginFile(pluginRoot, 'policies/locked.json', '{"rules":[]}');
+    writePluginFile(
+      pluginRoot,
+      'plugin.json',
+      JSON.stringify(
+        createManifest('unreadable-asset-plugin', '1.0.0', {
+          policies: ['policies/locked.json'],
+        }),
+      ),
+    );
+
+    vi.resetModules();
+    vi.doMock('node:fs', async () => {
+      const actualFs = await vi.importActual<typeof nodeFs>('node:fs');
+      const wrappedReadFileSync = ((
+        targetPath: Parameters<typeof actualFs.readFileSync>[0],
+        options?: Parameters<typeof actualFs.readFileSync>[1],
+      ) => {
+        if (typeof targetPath === 'string' && basename(targetPath) === 'locked.json') {
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        }
+        return actualFs.readFileSync(targetPath, options);
+      }) as typeof actualFs.readFileSync;
+
+      return {
+        ...actualFs,
+        readFileSync: wrappedReadFileSync,
+      };
+    });
+
+    try {
+      const { loadPlugin: loadWithMockedFs } = await import('./plugin-loader.js');
+      const res = loadWithMockedFs(pluginRoot);
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.issues[0]?.code).toBe('FILE_READ_ERROR');
+        expect(res.issues[0]?.path).toBe('plugin.json');
+        expect(res.issues[0]?.message).toContain('EACCES');
+      }
+    } finally {
+      vi.doUnmock('node:fs');
+      vi.resetModules();
+    }
+  });
+
   it('rejects duplicate skill names, agent names, rule ids, and hook ids within the same bundle', () => {
     const workspace = createTempDir('donaron-load-dups-');
 

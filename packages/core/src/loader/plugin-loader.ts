@@ -474,7 +474,17 @@ export function loadPlugin(
     return { ok: false, issues };
   }
 
-  const digest = computePluginDigest(realRoot, digestFiles);
+  let digest: string;
+  try {
+    digest = computePluginDigest(realRoot, digestFiles);
+  } catch (error: unknown) {
+    return fail(
+      'FILE_READ_ERROR',
+      'plugin.json',
+      `Unable to compute plugin digest: ${formatErrorReason(error)}`,
+    );
+  }
+
   return {
     ok: true,
     value: {
