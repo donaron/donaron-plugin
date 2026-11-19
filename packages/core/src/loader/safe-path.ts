@@ -158,7 +158,35 @@ function verifyBrokenSymlinkTarget(
   originalRelativePath: string,
   visited: Set<string>,
 ): ValidationResult<AncestorResolution> {
-  const normalizedLink = normalizeForContainment(symlinkPath);
+  let realParent: string;
+  try {
+    realParent = resolve(realpathSync(dirname(symlinkPath)));
+  } catch (error: unknown) {
+    const code = getErrnoCode(error);
+    if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') {
+      return fail(
+        'SYMLINK_ESCAPE',
+        originalRelativePath,
+        `Unable to resolve symlink parent for "${originalRelativePath}": ${formatErrorReason(error)}`,
+      );
+    }
+    return fail(
+      'PATH_RESOLUTION_ERROR',
+      originalRelativePath,
+      `Failed to resolve symlink parent for "${originalRelativePath}": ${formatErrorReason(error)}`,
+    );
+  }
+
+  if (!isPathWithinRoot(normalizedRoot, realParent)) {
+    return fail(
+      'SYMLINK_ESCAPE',
+      originalRelativePath,
+      `Symlink parent "${realParent}" escapes plugin root "${realRoot}".`,
+    );
+  }
+
+  const canonicalLinkPath = resolve(realParent, basename(symlinkPath));
+  const normalizedLink = normalizeForContainment(canonicalLinkPath);
   if (visited.has(normalizedLink) || visited.size >= MAX_BROKEN_SYMLINK_DEPTH) {
     return fail(
       'SYMLINK_ESCAPE',
@@ -170,7 +198,7 @@ function verifyBrokenSymlinkTarget(
 
   let rawTarget: string;
   try {
-    rawTarget = readlinkSync(symlinkPath);
+    rawTarget = readlinkSync(canonicalLinkPath);
   } catch (error: unknown) {
     return fail(
       'SYMLINK_ESCAPE',
@@ -179,7 +207,7 @@ function verifyBrokenSymlinkTarget(
     );
   }
 
-  const resolvedTarget = resolve(dirname(symlinkPath), rawTarget);
+  const resolvedTarget = resolve(realParent, rawTarget);
   if (!isPathWithinRoot(normalizedRoot, resolvedTarget)) {
     return fail(
       'SYMLINK_ESCAPE',

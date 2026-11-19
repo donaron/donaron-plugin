@@ -1,13 +1,14 @@
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import type * as nodeFs from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { basename, join, resolve } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveSafePluginPath } from './safe-path.js';
 
 const tempDirs: string[] = [];
 
 function createTempDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   tempDirs.push(dir);
   return dir;
 }
@@ -294,5 +295,83 @@ describe('resolveSafePluginPath', () => {
         relativePosixPath: 'future-dir/file.txt',
       },
     });
+  });
+
+  it('rejects a broken symlink inside an escaping parent symlink/junction even if its target points inside pluginRoot', () => {
+    const workspace = createTempDir('donaron-broken-escape-parent-');
+    const pluginRoot = join(workspace, 'plugin');
+    const outsideDir = join(workspace, 'outside');
+    mkdirSync(pluginRoot, { recursive: true });
+    mkdirSync(outsideDir, { recursive: true });
+
+    symlinkSync(resolve(outsideDir), join(pluginRoot, 'escape'), 'junction');
+    symlinkSync(resolve(pluginRoot, 'anything'), join(outsideDir, 'broken'), 'junction');
+
+    const directBroken = resolveSafePluginPath(pluginRoot, 'escape/broken', { mustExist: false });
+    expect(directBroken.ok).toBe(false);
+    if (!directBroken.ok) {
+      expect(directBroken.issues[0]?.code).toBe('SYMLINK_ESCAPE');
+    }
+
+    const nestedBroken = resolveSafePluginPath(pluginRoot, 'escape/broken/file.txt', {
+      mustExist: false,
+    });
+    expect(nestedBroken.ok).toBe(false);
+    if (!nestedBroken.ok) {
+      expect(nestedBroken.issues[0]?.code).toBe('SYMLINK_ESCAPE');
+    }
+  });
+
+  it('resolves broken relative symlink targets and cycle keys against the canonical parent directory', async () => {
+    const workspace = createTempDir('donaron-broken-canonical-parent-');
+    const pluginRoot = join(workspace, 'plugin');
+    const nestedParent = join(pluginRoot, 'a', 'b');
+    const topDir = join(pluginRoot, 'top');
+    mkdirSync(nestedParent, { recursive: true });
+    mkdirSync(topDir, { recursive: true });
+
+    symlinkSync(resolve(topDir), join(nestedParent, 'sub'), 'junction');
+    symlinkSync(resolve(topDir, 'placeholder-a'), join(topDir, 'broken'), 'junction');
+    symlinkSync(resolve(topDir, 'placeholder-b'), join(topDir, 'cycle'), 'junction');
+
+    vi.resetModules();
+    vi.doMock('node:fs', async () => {
+      const actualFs = await vi.importActual<typeof nodeFs>('node:fs');
+      return {
+        ...actualFs,
+        readlinkSync: (targetPath: Parameters<typeof actualFs.readlinkSync>[0]) => {
+          if (typeof targetPath === 'string' && basename(targetPath) === 'broken') {
+            return '../../outside';
+          }
+          if (typeof targetPath === 'string' && basename(targetPath) === 'cycle') {
+            return '../a/b/sub/cycle';
+          }
+          return actualFs.readlinkSync(targetPath);
+        },
+      };
+    });
+
+    try {
+      const { resolveSafePluginPath: resolveWithCanonicalCheck } = await import('./safe-path.js');
+
+      const escapeResult = resolveWithCanonicalCheck(pluginRoot, 'a/b/sub/broken', {
+        mustExist: false,
+      });
+      expect(escapeResult.ok).toBe(false);
+      if (!escapeResult.ok) {
+        expect(escapeResult.issues[0]?.code).toBe('SYMLINK_ESCAPE');
+      }
+
+      const cycleResult = resolveWithCanonicalCheck(pluginRoot, 'a/b/sub/cycle', {
+        mustExist: false,
+      });
+      expect(cycleResult.ok).toBe(false);
+      if (!cycleResult.ok) {
+        expect(cycleResult.issues[0]?.code).toBe('SYMLINK_ESCAPE');
+      }
+    } finally {
+      vi.doUnmock('node:fs');
+      vi.resetModules();
+    }
   });
 });
