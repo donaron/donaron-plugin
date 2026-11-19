@@ -1,0 +1,6 @@
+{
+  "name": "@donaron/plugin-donaron-dev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Node + React DonAron plugin source bundle (populated in Phase 6)."
+}

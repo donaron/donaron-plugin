@@ -1,0 +1,26 @@
+{
+  "name": "@donaron/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DonAron CLI and live harness hook bridge.",
+  "bin": {
+    "donaron": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@donaron/adapters": "workspace:*",
+    "@donaron/core": "workspace:*",
+    "@donaron/gates": "workspace:*"
+  }
+}

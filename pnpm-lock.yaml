@@ -33,6 +33,18 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@24.10.1)
 
+  apps/cli:
+    dependencies:
+      '@donaron/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@donaron/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@donaron/gates':
+        specifier: workspace:*
+        version: link:../../packages/gates
+
   packages/adapters:
     dependencies:
       '@donaron/core':
@@ -49,6 +61,8 @@ importers:
       '@donaron/core':
         specifier: workspace:*
         version: link:../core
+
+  plugins/donaron-dev: {}
 
 packages:
 
