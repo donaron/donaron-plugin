@@ -100,5 +100,23 @@ describe('Adapter Registry & PluginInstallationRegistry', () => {
     expect(existsSync(agyInstallDir)).toBe(false);
     expect(existsSync(ccInstallDir)).toBe(true);
     expect(registry.listInstalled()).toHaveLength(1);
+
+    // Fails closed if registry receipt has a tampered installedPath whose basename !== pluginName
+    const unsafeTargetDir = join(root, 'do-not-delete-me');
+    mkdirSync(unsafeTargetDir, { recursive: true });
+    registry.recordInstall({
+      harnessId: 'antigravity',
+      pluginId: 'tampered.plugin',
+      pluginName: 'tampered-plugin',
+      version: '0.1.0',
+      installedPath: unsafeTargetDir,
+      sourceDigest: 'sha256:999',
+      permissions: [],
+      installedAt: '2026-11-19T02:00:00.000Z',
+    });
+
+    const unsafeUninstall = registry.uninstallPlugin('tampered-plugin', 'antigravity');
+    expect(unsafeUninstall.ok).toBe(false);
+    expect(existsSync(unsafeTargetDir)).toBe(true);
   });
 });

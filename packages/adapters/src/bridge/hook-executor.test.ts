@@ -203,6 +203,49 @@ describe('executeNormalizedHook', () => {
         },
       }).decision,
     ).toBe('allow');
+
+    // Workspace .donaron/policy.json: enforces extraRules and fails closed if malformed
+    mkdirSync(join(root, '.donaron'), { recursive: true });
+    writeFileSync(join(root, '.donaron', 'policy.json'), '{malformed-json', 'utf8');
+    expect(
+      executeNormalizedHook({
+        harnessId: 'antigravity',
+        event: 'PreToolUse',
+        workspaceRoot: root,
+        toolCall: {
+          name: 'run_command',
+          args: { CommandLine: 'pnpm test' },
+        },
+      }).decision,
+    ).toBe('deny');
+
+    writeFileSync(
+      join(root, '.donaron', 'policy.json'),
+      JSON.stringify({
+        rules: [
+          {
+            id: 'custom-deny-migrations',
+            description: 'Block editing db/migrations directly',
+            priority: 920,
+            effect: 'DENY',
+            actions: ['fs:write'],
+            pathPatterns: ['^db/migrations/'],
+          },
+        ],
+      }),
+      'utf8',
+    );
+    expect(
+      executeNormalizedHook({
+        harnessId: 'antigravity',
+        event: 'PreToolUse',
+        workspaceRoot: root,
+        toolCall: {
+          name: 'write_file',
+          args: { Path: join(root, 'db', 'migrations', '001.sql') },
+        },
+      }).decision,
+    ).toBe('deny');
   });
 
   it('handles PostToolUse and Stop hook gate enforcement (Choice 2A, active workflow block_stop, and continuationActive loop guard)', () => {

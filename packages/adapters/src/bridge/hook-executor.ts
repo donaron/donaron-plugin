@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { evaluatePolicy, type PolicyAction } from '@donaron/core';
+import { join } from 'node:path';
+import { evaluatePolicy, parsePolicyFile, type PolicyAction, type PolicyRule } from '@donaron/core';
 import { EvidenceStore, WorkflowOrchestrator } from '@donaron/gates';
 import type { NormalizedHookDecision, NormalizedHookInput, NormalizedToolCall } from '../types.js';
 
@@ -131,13 +132,29 @@ export function executeNormalizedHook(input: NormalizedHookInput): NormalizedHoo
         };
       }
 
-      const policyResult = evaluatePolicy({
-        action: classified.action,
-        actorType: 'agent',
-        workspaceRoot,
-        ...(classified.targetPath !== undefined ? { targetPath: classified.targetPath } : {}),
-        ...(classified.command !== undefined ? { command: classified.command } : {}),
-      });
+      let extraRules: readonly PolicyRule[] | undefined;
+      if (existsSync(join(workspaceRoot, '.donaron', 'policy.json'))) {
+        const parsedPolicy = parsePolicyFile(workspaceRoot, '.donaron/policy.json');
+        if (!parsedPolicy.ok) {
+          return {
+            event: 'PreToolUse',
+            decision: 'deny',
+            reason: `Fail-closed: workspace .donaron/policy.json is invalid (${parsedPolicy.issues.map((i) => i.message).join('; ')}).`,
+          };
+        }
+        extraRules = parsedPolicy.value;
+      }
+
+      const policyResult = evaluatePolicy(
+        {
+          action: classified.action,
+          actorType: 'agent',
+          workspaceRoot,
+          ...(classified.targetPath !== undefined ? { targetPath: classified.targetPath } : {}),
+          ...(classified.command !== undefined ? { command: classified.command } : {}),
+        },
+        extraRules,
+      );
 
       if (policyResult.effect === 'DENY') {
         return {

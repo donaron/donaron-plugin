@@ -140,10 +140,14 @@ export function copySkillAssets(
 
     const normalizedAssetRel = assetRel.replaceAll('\\', '/').replace(/^\/+/, '');
     const targetRelPosix = posix.join('skills', skill.name, normalizedAssetRel);
-    const targetAbs = join(outDir, targetRelPosix);
+    const safeOutTarget = resolveSafePluginPath(outDir, targetRelPosix, { mustExist: false });
+    if (!safeOutTarget.ok) {
+      continue;
+    }
+    const targetAbs = safeOutTarget.value.absolutePath;
     mkdirSync(dirname(targetAbs), { recursive: true });
     copyFileSync(resolved.value.absolutePath, targetAbs);
-    writtenFiles.push(targetRelPosix);
+    writtenFiles.push(safeOutTarget.value.relativePosixPath);
   }
 }
 

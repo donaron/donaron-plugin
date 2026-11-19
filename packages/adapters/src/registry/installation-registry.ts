@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, parse, resolve } from 'node:path';
 import type { ValidationResult } from '@donaron/core';
 import { AntigravityAdapter } from '../antigravity/antigravity-adapter.js';
 import { ClaudeCodeAdapter } from '../claude-code/claude-code-adapter.js';
@@ -125,8 +125,28 @@ export class PluginInstallationRegistry {
     }
 
     for (const receipt of removed) {
-      if (existsSync(receipt.installedPath)) {
-        rmSync(receipt.installedPath, { recursive: true, force: true });
+      const resolvedTarget = resolve(receipt.installedPath);
+      const isRoot = resolvedTarget === parse(resolvedTarget).root;
+      const matchesBase =
+        basename(resolvedTarget).toLowerCase() === receipt.pluginName.trim().toLowerCase();
+      if (isRoot || !matchesBase) {
+        return {
+          ok: false,
+          issues: [
+            {
+              code: 'UNSAFE_INSTALL_PATH',
+              path: 'installedPath',
+              message: `Refusing to delete unsafe installedPath "${receipt.installedPath}" for plugin "${receipt.pluginName}".`,
+            },
+          ],
+        };
+      }
+    }
+
+    for (const receipt of removed) {
+      const resolvedTarget = resolve(receipt.installedPath);
+      if (existsSync(resolvedTarget)) {
+        rmSync(resolvedTarget, { recursive: true, force: true });
       }
     }
 
