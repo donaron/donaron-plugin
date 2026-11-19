@@ -1,5 +1,5 @@
-import { lstatSync, readlinkSync, realpathSync, statSync } from 'node:fs';
-import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { type Stats, lstatSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import type { ValidationResult } from '../types.js';
 
 export interface SafePathOptions {
@@ -151,12 +151,205 @@ function resolveVerifiedRoot(pluginRoot: string): ValidationResult<string> {
   return { ok: true, value: realRoot };
 }
 
+function parseBrokenSymlinkTarget(
+  rawTarget: string,
+  realParent: string,
+  originalRelativePath: string,
+): ValidationResult<{ readonly startCursor: string; readonly segments: readonly string[] }> {
+  if (rawTarget.trim().length === 0 || hasControlCharacter(rawTarget)) {
+    return fail(
+      'SYMLINK_ESCAPE',
+      originalRelativePath,
+      `Symlink target for "${originalRelativePath}" is empty or contains control characters.`,
+    );
+  }
+
+  if (process.platform === 'win32') {
+    if (/^[a-zA-Z]:(?![/\\])/.test(rawTarget)) {
+      return fail(
+        'SYMLINK_ESCAPE',
+        originalRelativePath,
+        `Drive-relative symlink target "${rawTarget}" is not allowed.`,
+      );
+    }
+
+    if (isAbsolute(rawTarget)) {
+      const startCursor = parse(resolve(realParent, rawTarget)).root;
+      const isUncOrDevice = rawTarget.startsWith('\\\\') || rawTarget.startsWith('//');
+      const rawWithoutRoot = isUncOrDevice
+        ? rawTarget.replace(/^[/\\]{2}[^/\\]+[/\\][^/\\]+[/\\]?/, '')
+        : rawTarget.replace(/^(?:[a-zA-Z]:[/\\]+|[/\\]+)/, '');
+      return {
+        ok: true,
+        value: {
+          startCursor,
+          segments: rawWithoutRoot.split(/[/\\]/),
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      value: {
+        startCursor: realParent,
+        segments: rawTarget.split(/[/\\]/),
+      },
+    };
+  }
+
+  if (rawTarget.startsWith('/')) {
+    return {
+      ok: true,
+      value: {
+        startCursor: '/',
+        segments: rawTarget.replace(/^\/+/, '').split('/'),
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      startCursor: realParent,
+      segments: rawTarget.split('/'),
+    },
+  };
+}
+
+function resolveBrokenTargetSegments(
+  rawTarget: string,
+  realParent: string,
+  realRoot: string,
+  normalizedRoot: string,
+  originalRelativePath: string,
+  visited: Set<string>,
+  depth: number,
+): ValidationResult<string> {
+  const parsed = parseBrokenSymlinkTarget(rawTarget, realParent, originalRelativePath);
+  if (!parsed.ok) {
+    return parsed;
+  }
+
+  let cursor = parsed.value.startCursor;
+  let hasEnteredRoot = isPathWithinRoot(normalizedRoot, cursor);
+
+  for (const segment of parsed.value.segments) {
+    if (segment === '' || segment === '.') {
+      continue;
+    }
+
+    if (segment === '..') {
+      if (!isPathWithinRoot(normalizedRoot, cursor)) {
+        return fail(
+          'SYMLINK_ESCAPE',
+          originalRelativePath,
+          `Symlink target "${rawTarget}" escapes plugin root "${realRoot}".`,
+        );
+      }
+      const parent = dirname(cursor);
+      if (parent === cursor || !isPathWithinRoot(normalizedRoot, parent)) {
+        return fail(
+          'SYMLINK_ESCAPE',
+          originalRelativePath,
+          `Symlink target "${rawTarget}" escapes plugin root "${realRoot}".`,
+        );
+      }
+      cursor = parent;
+      continue;
+    }
+
+    cursor = join(cursor, segment);
+    if (isPathWithinRoot(normalizedRoot, cursor)) {
+      hasEnteredRoot = true;
+    }
+
+    let stats: Stats;
+    try {
+      stats = lstatSync(cursor);
+    } catch (error: unknown) {
+      const code = getErrnoCode(error);
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        continue;
+      }
+      return fail(
+        'PATH_RESOLUTION_ERROR',
+        originalRelativePath,
+        `Failed to inspect symlink target "${originalRelativePath}": ${formatErrorReason(error)}`,
+      );
+    }
+
+    if (!stats.isSymbolicLink()) {
+      continue;
+    }
+
+    try {
+      const realCursor = resolve(realpathSync(cursor));
+      const inRoot = isPathWithinRoot(normalizedRoot, realCursor);
+      const isAncestorOfRoot =
+        !hasEnteredRoot && isPathWithinRoot(normalizeForContainment(realCursor), realRoot);
+      if (!inRoot && !isAncestorOfRoot) {
+        return fail(
+          'SYMLINK_ESCAPE',
+          originalRelativePath,
+          `Symlink target "${rawTarget}" escapes plugin root "${realRoot}".`,
+        );
+      }
+      cursor = realCursor;
+      if (inRoot) {
+        hasEnteredRoot = true;
+      }
+    } catch (error: unknown) {
+      const code = getErrnoCode(error);
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        const nestedBroken = verifyBrokenSymlinkTarget(
+          cursor,
+          realRoot,
+          normalizedRoot,
+          originalRelativePath,
+          visited,
+          depth + 1,
+        );
+        if (!nestedBroken.ok) {
+          return nestedBroken;
+        }
+        cursor = nestedBroken.value.resolvedPath;
+        if (isPathWithinRoot(normalizedRoot, cursor)) {
+          hasEnteredRoot = true;
+        }
+      } else if (code === 'ELOOP') {
+        return fail(
+          'SYMLINK_ESCAPE',
+          originalRelativePath,
+          `Symlink loop encountered while resolving "${originalRelativePath}".`,
+        );
+      } else {
+        return fail(
+          'PATH_RESOLUTION_ERROR',
+          originalRelativePath,
+          `Failed to resolve symlink target "${originalRelativePath}": ${formatErrorReason(error)}`,
+        );
+      }
+    }
+  }
+
+  if (!isPathWithinRoot(normalizedRoot, cursor)) {
+    return fail(
+      'SYMLINK_ESCAPE',
+      originalRelativePath,
+      `Symlink target "${cursor}" escapes plugin root "${realRoot}".`,
+    );
+  }
+
+  return { ok: true, value: cursor };
+}
+
 function verifyBrokenSymlinkTarget(
   symlinkPath: string,
   realRoot: string,
   normalizedRoot: string,
   originalRelativePath: string,
   visited: Set<string>,
+  depth = 0,
 ): ValidationResult<AncestorResolution> {
   let realParent: string;
   try {
@@ -187,7 +380,7 @@ function verifyBrokenSymlinkTarget(
 
   const canonicalLinkPath = resolve(realParent, basename(symlinkPath));
   const normalizedLink = normalizeForContainment(canonicalLinkPath);
-  if (visited.has(normalizedLink) || visited.size >= MAX_BROKEN_SYMLINK_DEPTH) {
+  if (visited.has(normalizedLink) || depth >= MAX_BROKEN_SYMLINK_DEPTH) {
     return fail(
       'SYMLINK_ESCAPE',
       originalRelativePath,
@@ -196,44 +389,53 @@ function verifyBrokenSymlinkTarget(
   }
   visited.add(normalizedLink);
 
-  let rawTarget: string;
   try {
-    rawTarget = readlinkSync(canonicalLinkPath);
-  } catch (error: unknown) {
-    return fail(
-      'SYMLINK_ESCAPE',
+    let rawTarget: string;
+    try {
+      rawTarget = readlinkSync(canonicalLinkPath);
+    } catch (error: unknown) {
+      return fail(
+        'SYMLINK_ESCAPE',
+        originalRelativePath,
+        `Unable to read symlink target for "${originalRelativePath}": ${formatErrorReason(error)}`,
+      );
+    }
+
+    const resolvedTargetResult = resolveBrokenTargetSegments(
+      rawTarget,
+      realParent,
+      realRoot,
+      normalizedRoot,
       originalRelativePath,
-      `Unable to read symlink target for "${originalRelativePath}": ${formatErrorReason(error)}`,
+      visited,
+      depth,
     );
-  }
+    if (!resolvedTargetResult.ok) {
+      return resolvedTargetResult;
+    }
 
-  const resolvedTarget = resolve(realParent, rawTarget);
-  if (!isPathWithinRoot(normalizedRoot, resolvedTarget)) {
-    return fail(
-      'SYMLINK_ESCAPE',
+    const targetResult = resolveExistingOrAncestor(
+      resolvedTargetResult.value,
+      realRoot,
+      normalizedRoot,
       originalRelativePath,
-      `Symlink target "${resolvedTarget}" escapes plugin root "${realRoot}".`,
+      visited,
+      depth + 1,
     );
-  }
+    if (!targetResult.ok) {
+      return targetResult;
+    }
 
-  const targetResult = resolveExistingOrAncestor(
-    resolvedTarget,
-    realRoot,
-    normalizedRoot,
-    originalRelativePath,
-    visited,
-  );
-  if (!targetResult.ok) {
-    return targetResult;
+    return {
+      ok: true,
+      value: {
+        resolvedPath: targetResult.value.resolvedPath,
+        existed: false,
+      },
+    };
+  } finally {
+    visited.delete(normalizedLink);
   }
-
-  return {
-    ok: true,
-    value: {
-      resolvedPath: targetResult.value.resolvedPath,
-      existed: false,
-    },
-  };
 }
 
 function resolveExistingOrAncestor(
@@ -242,6 +444,7 @@ function resolveExistingOrAncestor(
   normalizedRoot: string,
   originalRelativePath: string,
   visited: Set<string>,
+  depth = 0,
 ): ValidationResult<AncestorResolution> {
   const trailingSegments: string[] = [];
   let current = targetPath;
@@ -293,6 +496,7 @@ function resolveExistingOrAncestor(
             normalizedRoot,
             originalRelativePath,
             visited,
+            depth,
           );
           if (!brokenResult.ok) {
             return brokenResult;

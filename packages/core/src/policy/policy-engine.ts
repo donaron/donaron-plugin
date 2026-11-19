@@ -1,4 +1,4 @@
-import { lstatSync, readlinkSync, realpathSync } from 'node:fs';
+import { type Stats, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import { isPlainObject, stripUtf8Bom } from '../parsers/frontmatter.js';
 import {
@@ -240,39 +240,183 @@ function resolveDiskRoot(resolvedRoot: string, pathImpl: PathImpl): string | und
   }
 }
 
+function resolveSegmentsOnDisk(
+  rawPath: string,
+  relativeBase: string,
+  anchorFallbackBase: string,
+  realRoot: string,
+  pathImpl: PathImpl,
+  caseInsensitive: boolean,
+  visited: Set<string>,
+  depth: number,
+): { readonly resolvedPath: string; readonly escapedRoot: boolean } {
+  const separatorPattern = caseInsensitive ? /[/\\]/ : '/';
+  const isAnchored =
+    pathImpl.isAbsolute(rawPath) ||
+    rawPath.startsWith('/') ||
+    (caseInsensitive && rawPath.startsWith('\\'));
+
+  let cursor: string;
+  let segments: string[];
+
+  if (isAnchored) {
+    const parsed = pathImpl.parse(pathImpl.resolve(anchorFallbackBase, rawPath));
+    cursor = parsed.root;
+    let rawWithoutRoot: string;
+    if (caseInsensitive && isUncOrDevicePath(rawPath)) {
+      rawWithoutRoot = rawPath.replace(/^[/\\]{2}[^/\\]+[/\\][^/\\]+[/\\]?/, '');
+    } else if (caseInsensitive) {
+      rawWithoutRoot = rawPath.replace(/^(?:[a-zA-Z]:[/\\]+|[/\\]+)/, '');
+    } else {
+      rawWithoutRoot = rawPath.replace(/^\/+/, '');
+    }
+    segments = rawWithoutRoot.split(separatorPattern);
+  } else {
+    cursor = relativeBase;
+    segments = rawPath.split(separatorPattern);
+  }
+
+  let hasEnteredRoot = isContainedPath(realRoot, cursor, pathImpl, caseInsensitive);
+  let escapedRoot = false;
+
+  for (const segment of segments) {
+    if (segment === '' || segment === '.') {
+      continue;
+    }
+
+    if (segment === '..') {
+      if (!isContainedPath(realRoot, cursor, pathImpl, caseInsensitive)) {
+        escapedRoot = true;
+      }
+      const parent = pathImpl.dirname(cursor);
+      if (parent === cursor || !isContainedPath(realRoot, parent, pathImpl, caseInsensitive)) {
+        escapedRoot = true;
+      }
+      cursor = parent;
+      continue;
+    }
+
+    cursor = pathImpl.join(cursor, segment);
+    if (isContainedPath(realRoot, cursor, pathImpl, caseInsensitive)) {
+      hasEnteredRoot = true;
+    }
+
+    let stats: Stats;
+    try {
+      stats = lstatSync(cursor);
+    } catch (error: unknown) {
+      const code = getErrnoCode(error);
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        continue;
+      }
+      throw error;
+    }
+
+    if (!stats.isSymbolicLink()) {
+      continue;
+    }
+
+    try {
+      const realCursor = pathImpl.resolve(realpathSync(cursor));
+      const inRoot = isContainedPath(realRoot, realCursor, pathImpl, caseInsensitive);
+      const isAncestorOfRoot =
+        !hasEnteredRoot && isContainedPath(realCursor, realRoot, pathImpl, caseInsensitive);
+      if (!inRoot && !isAncestorOfRoot) {
+        escapedRoot = true;
+      }
+      cursor = realCursor;
+      if (inRoot) {
+        hasEnteredRoot = true;
+      }
+    } catch (symlinkError: unknown) {
+      const symlinkCode = getErrnoCode(symlinkError);
+      if (symlinkCode === 'ENOENT' || symlinkCode === 'ENOTDIR') {
+        const broken = resolveBrokenSymlinkTarget(
+          cursor,
+          realRoot,
+          pathImpl,
+          caseInsensitive,
+          visited,
+          depth + 1,
+        );
+        if (broken.escapedRoot) {
+          escapedRoot = true;
+        }
+        cursor = broken.resolvedPath;
+        if (isContainedPath(realRoot, cursor, pathImpl, caseInsensitive)) {
+          hasEnteredRoot = true;
+        }
+      } else {
+        throw symlinkError;
+      }
+    }
+  }
+
+  if (!isContainedPath(realRoot, cursor, pathImpl, caseInsensitive)) {
+    escapedRoot = true;
+  }
+
+  return { resolvedPath: cursor, escapedRoot };
+}
+
 function resolveBrokenSymlinkTarget(
   symlinkPath: string,
   realRoot: string,
   pathImpl: PathImpl,
   caseInsensitive: boolean,
   visited: Set<string>,
+  depth = 0,
 ): { readonly resolvedPath: string; readonly escapedRoot: boolean } {
   const realParent = pathImpl.resolve(realpathSync(pathImpl.dirname(symlinkPath)));
   const canonicalLink = pathImpl.resolve(realParent, pathImpl.basename(symlinkPath));
   const visitKey = caseInsensitive ? canonicalLink.toLowerCase() : canonicalLink;
 
-  if (visited.has(visitKey) || visited.size >= MAX_SYMLINK_DEPTH) {
+  if (visited.has(visitKey) || depth >= MAX_SYMLINK_DEPTH) {
     throw new Error(`Symlink loop or excessive symlink depth at "${symlinkPath}".`);
   }
   visited.add(visitKey);
 
-  const rawTarget = readlinkSync(canonicalLink);
-  const resolvedTarget = pathImpl.resolve(realParent, rawTarget);
-  const ancestor = resolveTargetOnDisk(
-    resolvedTarget,
-    realRoot,
-    realRoot,
-    pathImpl,
-    caseInsensitive,
-    visited,
-  );
+  try {
+    const rawTarget = readlinkSync(canonicalLink);
+    if (
+      rawTarget.trim().length === 0 ||
+      hasControlCharacter(rawTarget) ||
+      (caseInsensitive && WINDOWS_DRIVE_RELATIVE.test(rawTarget))
+    ) {
+      throw new Error(`Unsafe symlink target at "${symlinkPath}".`);
+    }
 
-  return {
-    resolvedPath: ancestor.resolvedPath,
-    escapedRoot:
-      !isContainedPath(realRoot, realParent, pathImpl, caseInsensitive) ||
-      !isContainedPath(realRoot, ancestor.resolvedPath, pathImpl, caseInsensitive),
-  };
+    const segResult = resolveSegmentsOnDisk(
+      rawTarget,
+      realParent,
+      realParent,
+      realRoot,
+      pathImpl,
+      caseInsensitive,
+      visited,
+      depth + 1,
+    );
+    const ancestor = resolveTargetOnDisk(
+      segResult.resolvedPath,
+      realRoot,
+      realRoot,
+      pathImpl,
+      caseInsensitive,
+      visited,
+      depth + 1,
+    );
+
+    return {
+      resolvedPath: ancestor.resolvedPath,
+      escapedRoot:
+        !isContainedPath(realRoot, realParent, pathImpl, caseInsensitive) ||
+        segResult.escapedRoot ||
+        ancestor.escapedRoot ||
+        !isContainedPath(realRoot, ancestor.resolvedPath, pathImpl, caseInsensitive),
+    };
+  } finally {
+    visited.delete(visitKey);
+  }
 }
 
 function resolveTargetOnDisk(
@@ -282,6 +426,7 @@ function resolveTargetOnDisk(
   pathImpl: PathImpl,
   caseInsensitive: boolean,
   visited: Set<string>,
+  depth = 0,
 ): { readonly resolvedPath: string; readonly escapedRoot: boolean } {
   const trailingSegments: string[] = [];
   let current = candidate;
@@ -319,6 +464,7 @@ function resolveTargetOnDisk(
             pathImpl,
             caseInsensitive,
             visited,
+            depth,
           );
           const resolvedPath =
             trailingSegments.length === 0
@@ -365,86 +511,37 @@ function resolveWithDotDotSymlinkCheck(
   pathImpl: PathImpl,
   caseInsensitive: boolean,
 ): { readonly resolvedPath: string; readonly escapedRoot: boolean } | undefined {
-  const rawSegments = rawTargetPath.split(/[/\\]/);
+  const separatorPattern = caseInsensitive ? /[/\\]/ : '/';
+  const rawSegments = rawTargetPath.split(separatorPattern);
   if (!rawSegments.includes('..')) {
     return undefined;
   }
 
-  let cursor: string;
-  let segments: string[];
-
-  if (
-    pathImpl.isAbsolute(rawTargetPath) ||
-    rawTargetPath.startsWith('/') ||
-    rawTargetPath.startsWith('\\')
-  ) {
-    const parsed = pathImpl.parse(pathImpl.resolve(resolvedRoot, rawTargetPath));
-    cursor = parsed.root;
-    const rawWithoutRoot = isUncOrDevicePath(rawTargetPath)
-      ? rawTargetPath.replace(/^[/\\]{2}[^/\\]+[/\\][^/\\]+[/\\]?/, '')
-      : rawTargetPath.replace(/^(?:[a-zA-Z]:[/\\]|[/\\])+/, '');
-    segments = rawWithoutRoot.split(/[/\\]/);
-  } else {
-    cursor = realRoot;
-    segments = rawSegments;
-  }
-
-  for (const segment of segments) {
-    if (segment === '' || segment === '.') {
-      continue;
-    }
-
-    if (segment === '..') {
-      try {
-        const stats = lstatSync(cursor);
-        if (stats.isSymbolicLink()) {
-          try {
-            const realCursor = pathImpl.resolve(realpathSync(cursor));
-            if (!isContainedPath(realRoot, realCursor, pathImpl, caseInsensitive)) {
-              return { resolvedPath: realCursor, escapedRoot: true };
-            }
-            cursor = realCursor;
-          } catch (symlinkError: unknown) {
-            const symlinkCode = getErrnoCode(symlinkError);
-            if (symlinkCode === 'ENOENT' || symlinkCode === 'ENOTDIR') {
-              const broken = resolveBrokenSymlinkTarget(
-                cursor,
-                realRoot,
-                pathImpl,
-                caseInsensitive,
-                new Set<string>(),
-              );
-              if (broken.escapedRoot) {
-                return broken;
-              }
-              cursor = broken.resolvedPath;
-            } else {
-              throw symlinkError;
-            }
-          }
-        }
-      } catch (error: unknown) {
-        const code = getErrnoCode(error);
-        if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-          throw error;
-        }
-      }
-
-      cursor = pathImpl.dirname(cursor);
-      continue;
-    }
-
-    cursor = pathImpl.join(cursor, segment);
-  }
-
-  return resolveTargetOnDisk(
-    cursor,
+  const visited = new Set<string>();
+  const segResult = resolveSegmentsOnDisk(
+    rawTargetPath,
+    realRoot,
     resolvedRoot,
     realRoot,
     pathImpl,
     caseInsensitive,
-    new Set<string>(),
+    visited,
+    0,
   );
+  const diskResult = resolveTargetOnDisk(
+    segResult.resolvedPath,
+    resolvedRoot,
+    realRoot,
+    pathImpl,
+    caseInsensitive,
+    visited,
+    0,
+  );
+
+  return {
+    resolvedPath: diskResult.resolvedPath,
+    escapedRoot: segResult.escapedRoot || diskResult.escapedRoot,
+  };
 }
 
 function resolveTargetPath(
@@ -1046,12 +1143,25 @@ export function evaluatePolicy(
   request: PolicyRequest,
   extraRules?: readonly PolicyRule[],
 ): PolicyDecision {
-  const allRules: readonly PolicyRule[] =
-    extraRules !== undefined && extraRules.length > 0
-      ? [...DEFAULT_SECURITY_POLICIES, ...extraRules]
-      : DEFAULT_SECURITY_POLICIES;
+  let allRules: readonly PolicyRule[] = DEFAULT_SECURITY_POLICIES;
 
   try {
+    const rawExtraRules: unknown = extraRules;
+    if (rawExtraRules !== undefined) {
+      if (!Array.isArray(rawExtraRules)) {
+        return {
+          effect: 'DENY',
+          matchedRuleId: 'builtin-policy-evaluation-error',
+          reason: 'Fail-closed: extraRules must be an array.',
+          evaluatedRulesCount: allRules.length,
+          failedClosed: true,
+        };
+      }
+      if (rawExtraRules.length > 0) {
+        allRules = [...DEFAULT_SECURITY_POLICIES, ...(rawExtraRules as readonly PolicyRule[])];
+      }
+    }
+
     if (
       !POLICY_ACTIONS.includes(request.action) ||
       !POLICY_ACTOR_TYPES.includes(request.actorType)
@@ -1063,6 +1173,36 @@ export function evaluatePolicy(
         evaluatedRulesCount: allRules.length,
         failedClosed: true,
       };
+    }
+
+    if (
+      request.action === 'fs:read' ||
+      request.action === 'fs:write' ||
+      request.action === 'fs:delete'
+    ) {
+      const rawTargetPath: unknown = request.targetPath;
+      if (typeof rawTargetPath !== 'string' || rawTargetPath.trim().length === 0) {
+        return {
+          effect: 'DENY',
+          matchedRuleId: 'builtin-policy-evaluation-error',
+          reason: `Fail-closed: "${request.action}" requires a non-empty targetPath.`,
+          evaluatedRulesCount: allRules.length,
+          failedClosed: true,
+        };
+      }
+    }
+
+    if (request.action === 'cmd:exec') {
+      const rawCommand: unknown = request.command;
+      if (typeof rawCommand !== 'string' || rawCommand.trim().length === 0) {
+        return {
+          effect: 'DENY',
+          matchedRuleId: 'builtin-policy-evaluation-error',
+          reason: 'Fail-closed: "cmd:exec" requires a non-empty command.',
+          evaluatedRulesCount: allRules.length,
+          failedClosed: true,
+        };
+      }
     }
 
     const compiledResult = compileRules(allRules);

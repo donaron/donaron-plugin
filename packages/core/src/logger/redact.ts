@@ -59,6 +59,9 @@ function copyRedactedProperties(
   activeAncestors: WeakSet<object>,
 ): void {
   for (const [key, entryValue] of Object.entries(source)) {
+    if (typeof entryValue === 'function') {
+      continue;
+    }
     defineEnumerableProperty(
       target,
       key,
@@ -67,9 +70,17 @@ function copyRedactedProperties(
   }
 }
 
-function redactValue(value: unknown, activeAncestors: WeakSet<object>): unknown {
+function redactValue(
+  value: unknown,
+  activeAncestors: WeakSet<object>,
+  allowToJson = true,
+): unknown {
   if (typeof value === 'string') {
     return redactSecrets(value);
+  }
+
+  if (typeof value === 'function') {
+    return undefined;
   }
 
   if (value === null || typeof value !== 'object') {
@@ -139,6 +150,28 @@ function redactValue(value: unknown, activeAncestors: WeakSet<object>): unknown 
         clonedSet.add(redactValue(item, activeAncestors));
       }
       return clonedSet;
+    }
+
+    if (allowToJson) {
+      let toJsonMethod: unknown;
+      try {
+        toJsonMethod = (value as { readonly toJSON?: unknown }).toJSON;
+      } catch {
+        toJsonMethod = undefined;
+      }
+
+      if (typeof toJsonMethod === 'function') {
+        try {
+          const serialized = Reflect.apply(
+            toJsonMethod as (this: object, key: string) => unknown,
+            value,
+            [''],
+          );
+          return redactValue(serialized, activeAncestors, false);
+        } catch {
+          // Fall through to plain object cloning with functions omitted if toJSON() throws.
+        }
+      }
     }
 
     const clonedObj: Record<string, unknown> = {};

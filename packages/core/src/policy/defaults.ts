@@ -32,12 +32,12 @@ export const DEFAULT_SECURITY_POLICIES: readonly PolicyRule[] = [
   {
     id: 'builtin-protect-donaron-state',
     description:
-      'Block AI agents from writing or deleting DonAron workflow state and evidence files.',
+      'Block AI agents from writing or deleting .donaron state, config, workflow, and evidence files.',
     priority: 1000,
     effect: 'DENY',
     actions: ['fs:write', 'fs:delete'],
     actorTypes: ['agent'],
-    pathPatterns: ['(?i:(^|/)\\.donaron/(runs|evidence)(/|$))'],
+    pathPatterns: ['(?i:(^|/)\\.donaron(/|$))'],
     critical: true,
   },
   {

@@ -167,7 +167,7 @@ Arbitrary shell `command` properties, unknown keys, and unknown handler names ar
   - Invalid runtime `action` or `actorType`, or any unexpected evaluation exception.
 - **Workspace Containment:** `fs:write` and `fs:delete` enforce lexical and real-disk symlink/junction containment inside `workspaceRoot`, rejecting `..` escapes, drive mismatches, UNC/device namespace paths, and escaping symlinks.
 - **Built-in Choice 1A & Choice 2A Defaults (`DEFAULT_SECURITY_POLICIES`):**
-  - `builtin-protect-donaron-state` (`critical: true`, priority `1000`): blocks `agent` `fs:write`/`fs:delete` under `.donaron/runs/**` and `.donaron/evidence/**`.
+  - `builtin-protect-donaron-state` (`critical: true`, priority `1000`): blocks `agent` `fs:write`/`fs:delete` on `.donaron` and `.donaron/**` (including runs, evidence, and config files).
   - `builtin-block-agent-override-cmd` (`critical: true`, priority `1000`): blocks `agent` `cmd:exec` matching `donaron(.cmd|.exe)? gate override`.
   - `builtin-block-agent-override-action` (`critical: true`, priority `1000`): blocks `agent` `workflow:override`.
   - `builtin-human-override-approval` (priority `900`): requires interactive approval (`REQUIRE_APPROVAL`) for `human` `workflow:override`.

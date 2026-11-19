@@ -1,7 +1,8 @@
+import type * as nodeFs from 'node:fs';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { basename, join, resolve } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SECURITY_POLICIES } from './defaults.js';
 import { type PolicyRule, evaluatePolicy, parsePolicyFile } from './policy-engine.js';
 
@@ -90,15 +91,20 @@ describe('DEFAULT_SECURITY_POLICIES', () => {
 });
 
 describe('evaluatePolicy - Choice 1A (workflow state and override protection)', () => {
-  it('blocks agent fs:write and fs:delete against .donaron/runs and .donaron/evidence', () => {
+  it('blocks agent fs:write and fs:delete against .donaron itself, config files, runs, and evidence', () => {
     const workspaceRoot = '/repo';
     const protectedTargets = [
+      '.donaron',
+      '.donaron/',
+      '.donaron/config.json',
       '.donaron/runs',
       '.donaron/runs/run-1/state.json',
       '.donaron/evidence',
       '.donaron/evidence/gate-01.json',
+      'packages/app/.donaron',
       'packages/app/.donaron/runs/run-2/state.json',
       '.DONARON/RUNS/run-3/state.json',
+      'src/../.donaron',
       'src/../.donaron/evidence/gate-02.json',
     ];
 
@@ -115,6 +121,23 @@ describe('evaluatePolicy - Choice 1A (workflow state and override protection)', 
         expect(decision.failedClosed).toBe(false);
       }
     }
+
+    const windowsDeleteDotDonaron = evaluatePolicy({
+      action: 'fs:delete',
+      actorType: 'agent',
+      workspaceRoot: 'C:\\repo',
+      targetPath: '.donaron',
+    });
+    expect(windowsDeleteDotDonaron.effect).toBe('DENY');
+    expect(windowsDeleteDotDonaron.matchedRuleId).toBe('builtin-protect-donaron-state');
+
+    const nonDonaronDir = evaluatePolicy({
+      action: 'fs:write',
+      actorType: 'agent',
+      workspaceRoot: '/repo',
+      targetPath: '.donaron-cache/state.json',
+    });
+    expect(nonDonaronDir.effect).toBe('ALLOW');
   });
 
   it('allows agent fs:read on .donaron/runs and human/system writes to .donaron state', () => {
@@ -416,7 +439,8 @@ describe('evaluatePolicy - workspace boundary and path normalization', () => {
       targetPath: '   ',
     });
     expect(emptyTargetWrite.effect).toBe('DENY');
-    expect(emptyTargetWrite.matchedRuleId).toBe('builtin-workspace-boundary');
+    expect(emptyTargetWrite.matchedRuleId).toBe('builtin-policy-evaluation-error');
+    expect(emptyTargetWrite.failedClosed).toBe(true);
 
     const uncFromPosixRoot = evaluatePolicy({
       action: 'fs:write',
@@ -727,6 +751,173 @@ describe('evaluatePolicy - allowlists, precedence, tie-breaking, and fail-closed
     expect(cmdRes.effect).toBe('DENY');
     expect(cmdRes.matchedRuleId).toBe('broken-cmd-regex');
     expect(cmdRes.failedClosed).toBe(true);
+  });
+
+  it('fails closed on non-array extraRules (e.g. array-like or object wrappers)', () => {
+    const denyNetRule: PolicyRule = {
+      id: 'deny-net',
+      description: 'Deny net',
+      priority: 100,
+      effect: 'DENY',
+      actions: ['net:outbound'],
+    };
+
+    const arrayLike = evaluatePolicy({ action: 'net:outbound', actorType: 'agent' }, {
+      length: 1,
+    } as unknown as readonly PolicyRule[]);
+    expect(arrayLike.effect).toBe('DENY');
+    expect(arrayLike.matchedRuleId).toBe('builtin-policy-evaluation-error');
+    expect(arrayLike.failedClosed).toBe(true);
+
+    const wrappedObject = evaluatePolicy({ action: 'net:outbound', actorType: 'agent' }, {
+      rules: [denyNetRule],
+    } as unknown as readonly PolicyRule[]);
+    expect(wrappedObject.effect).toBe('DENY');
+    expect(wrappedObject.matchedRuleId).toBe('builtin-policy-evaluation-error');
+    expect(wrappedObject.failedClosed).toBe(true);
+
+    const nullExtraRules = evaluatePolicy(
+      { action: 'net:outbound', actorType: 'agent' },
+      null as unknown as readonly PolicyRule[],
+    );
+    expect(nullExtraRules.effect).toBe('DENY');
+    expect(nullExtraRules.matchedRuleId).toBe('builtin-policy-evaluation-error');
+    expect(nullExtraRules.failedClosed).toBe(true);
+  });
+
+  it('fails closed when targetPath is missing/blank on fs:* or command is missing/blank on cmd:exec', () => {
+    for (const action of ['fs:read', 'fs:write', 'fs:delete'] as const) {
+      for (const targetPath of [undefined, '', '   ']) {
+        const decision = evaluatePolicy({
+          action,
+          actorType: 'agent',
+          workspaceRoot: '/repo',
+          ...(targetPath !== undefined ? { targetPath } : {}),
+        });
+        expect(decision.effect, `Expected DENY for ${action} target=${String(targetPath)}`).toBe(
+          'DENY',
+        );
+        expect(decision.matchedRuleId).toBe('builtin-policy-evaluation-error');
+        expect(decision.failedClosed).toBe(true);
+      }
+    }
+
+    for (const command of [undefined, '', '   ']) {
+      const decision = evaluatePolicy({
+        action: 'cmd:exec',
+        actorType: 'agent',
+        ...(command !== undefined ? { command } : {}),
+      });
+      expect(decision.effect, `Expected DENY for cmd:exec command=${String(command)}`).toBe('DENY');
+      expect(decision.matchedRuleId).toBe('builtin-policy-evaluation-error');
+      expect(decision.failedClosed).toBe(true);
+    }
+  });
+
+  it('denies broken symlink targets that collapse .. across escaping or protected directory symlinks', async () => {
+    const baseDir = createTempDir('donaron-policy-broken-dotdot-');
+    const workspaceRoot = join(baseDir, 'workspace');
+    const outsideDeep = join(baseDir, 'outside', 'a', 'b');
+    const protectedSub = join(workspaceRoot, '.donaron', 'runs', 'sub');
+    mkdirSync(join(workspaceRoot, 'sub'), { recursive: true });
+    mkdirSync(outsideDeep, { recursive: true });
+    mkdirSync(protectedSub, { recursive: true });
+
+    symlinkSync(resolve(outsideDeep), join(workspaceRoot, 'sub', 'escape'), 'junction');
+    symlinkSync(resolve(protectedSub), join(workspaceRoot, 'sub', 'protected'), 'junction');
+
+    symlinkSync(
+      resolve(workspaceRoot, 'placeholder-a'),
+      join(workspaceRoot, 'broken-escape-dotdot'),
+      'junction',
+    );
+    symlinkSync(
+      resolve(workspaceRoot, 'placeholder-b'),
+      join(workspaceRoot, 'broken-protected-dotdot'),
+      'junction',
+    );
+    symlinkSync(
+      resolve(workspaceRoot, 'placeholder-c'),
+      join(workspaceRoot, 'broken-anchored-escape'),
+      'junction',
+    );
+    symlinkSync(
+      resolve(workspaceRoot, 'placeholder-d'),
+      join(workspaceRoot, 'broken-secret-read-dotdot'),
+      'junction',
+    );
+
+    const sep = process.platform === 'win32' ? '\\' : '/';
+    const anchoredTarget = `${workspaceRoot}${sep}sub${sep}escape${sep}..${sep}pwn.txt`;
+
+    vi.resetModules();
+    vi.doMock('node:fs', async () => {
+      const actualFs = await vi.importActual<typeof nodeFs>('node:fs');
+      return {
+        ...actualFs,
+        readlinkSync: (targetPath: Parameters<typeof actualFs.readlinkSync>[0]) => {
+          if (typeof targetPath === 'string') {
+            const name = basename(targetPath);
+            if (name === 'broken-escape-dotdot') {
+              return 'sub/escape/../pwn.txt';
+            }
+            if (name === 'broken-protected-dotdot') {
+              return 'sub/protected/../run-2/state.json';
+            }
+            if (name === 'broken-anchored-escape') {
+              return anchoredTarget;
+            }
+            if (name === 'broken-secret-read-dotdot') {
+              return 'sub/escape/../.env';
+            }
+          }
+          return actualFs.readlinkSync(targetPath);
+        },
+      };
+    });
+
+    try {
+      const { evaluatePolicy: evaluateWithBrokenDotDot } = await import('./policy-engine.js');
+
+      const escapeWrite = evaluateWithBrokenDotDot({
+        action: 'fs:write',
+        actorType: 'agent',
+        workspaceRoot,
+        targetPath: 'broken-escape-dotdot',
+      });
+      expect(escapeWrite.effect).toBe('DENY');
+      expect(escapeWrite.matchedRuleId).toBe('builtin-workspace-boundary');
+
+      const anchoredEscapeWrite = evaluateWithBrokenDotDot({
+        action: 'fs:write',
+        actorType: 'agent',
+        workspaceRoot,
+        targetPath: 'broken-anchored-escape',
+      });
+      expect(anchoredEscapeWrite.effect).toBe('DENY');
+      expect(anchoredEscapeWrite.matchedRuleId).toBe('builtin-workspace-boundary');
+
+      const protectedWrite = evaluateWithBrokenDotDot({
+        action: 'fs:write',
+        actorType: 'agent',
+        workspaceRoot,
+        targetPath: 'broken-protected-dotdot',
+      });
+      expect(protectedWrite.effect).toBe('DENY');
+      expect(protectedWrite.matchedRuleId).toBe('builtin-protect-donaron-state');
+
+      const secretRead = evaluateWithBrokenDotDot({
+        action: 'fs:read',
+        actorType: 'agent',
+        workspaceRoot,
+        targetPath: 'broken-secret-read-dotdot',
+      });
+      expect(secretRead.effect).toBe('DENY');
+      expect(secretRead.matchedRuleId).toBe('builtin-block-secret-files');
+    } finally {
+      vi.doUnmock('node:fs');
+      vi.resetModules();
+    }
   });
 });
 

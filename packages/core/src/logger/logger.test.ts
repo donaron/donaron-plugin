@@ -413,4 +413,101 @@ describe('createLogger', () => {
     expect(typeof logger.warn).toBe('function');
     expect(typeof logger.error).toBe('function');
   });
+
+  it('prevents own and prototype toJSON() methods from bypassing redaction during Pino serialization', () => {
+    const { chunks, destination } = createMemoryDestination();
+    const logger = createLogger({ level: 'debug', destination });
+
+    const ownToJsonSecret = 'sk-ant-secret1234567890abcd';
+    const protoToJsonSecret = 'AKIAIOSFODNN7PROTO12';
+    const errorToJsonSecret = 'ghp_1234567890abcdefghijErrorSec';
+
+    class CustomCarrier {
+      readonly safe = true;
+      toJSON(): Record<string, unknown> {
+        return {
+          apiKey: 'raw-proto-key',
+          note: `leak ${protoToJsonSecret}`,
+        };
+      }
+    }
+
+    const ownPayload = {
+      safe: 1,
+      toJSON() {
+        return { token: ownToJsonSecret, message: `inline ${ownToJsonSecret}` };
+      },
+    };
+
+    const nestedEvilPayload = {
+      toJSON() {
+        return {
+          nested: 'ok',
+          toJSON() {
+            return { token: ownToJsonSecret };
+          },
+        };
+      },
+    };
+
+    const throwingPayload = {
+      safe: 'kept',
+      token: 'raw-fallback-token',
+      toJSON() {
+        throw new Error(`boom ${ownToJsonSecret}`);
+      },
+    };
+
+    const errorWithToJson = Object.assign(new Error('failed'), {
+      toJSON() {
+        return { secret: errorToJsonSecret };
+      },
+    });
+
+    const redactedOwn = redactObject(ownPayload);
+    expect('toJSON' in redactedOwn).toBe(false);
+    const redactedProto = redactObject(new CustomCarrier());
+    expect('toJSON' in redactedProto).toBe(false);
+    const redactedNested = redactObject(nestedEvilPayload);
+    expect('toJSON' in redactedNested).toBe(false);
+
+    logger.error(
+      {
+        payload: ownPayload,
+        carrier: new CustomCarrier(),
+        nestedEvil: nestedEvilPayload,
+        throwing: throwingPayload,
+        err: errorWithToJson,
+      },
+      'custom toJSON serialization test',
+    );
+
+    expect(chunks).toHaveLength(1);
+    const line = chunks[0] ?? '';
+    expect(line).not.toContain(ownToJsonSecret);
+    expect(line).not.toContain(protoToJsonSecret);
+    expect(line).not.toContain(errorToJsonSecret);
+    expect(line).not.toContain('raw-proto-key');
+    expect(line).not.toContain('raw-fallback-token');
+
+    const parsed = JSON.parse(line) as {
+      payload: { token: string; message: string };
+      carrier: { apiKey: string; note: string };
+      nestedEvil: { nested: string };
+      throwing: { safe: string; token: string };
+    };
+    expect(parsed.payload).toEqual({
+      token: REDACTED_VALUE,
+      message: `inline ${REDACTED_VALUE}`,
+    });
+    expect(parsed.carrier).toEqual({
+      apiKey: REDACTED_VALUE,
+      note: `leak ${REDACTED_VALUE}`,
+    });
+    expect(parsed.nestedEvil).toEqual({ nested: 'ok' });
+    expect(parsed.throwing).toEqual({
+      safe: 'kept',
+      token: REDACTED_VALUE,
+    });
+  });
 });

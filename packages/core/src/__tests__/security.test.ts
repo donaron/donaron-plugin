@@ -1,3 +1,4 @@
+import type * as nodeFs from 'node:fs';
 import {
   existsSync,
   mkdtempSync,
@@ -8,8 +9,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { basename, join, resolve } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_SECURITY_POLICIES,
   DONARON_CORE_VERSION,
@@ -412,5 +413,154 @@ describe('Phase 2 public barrel exports & security regressions', () => {
     expect(parsed.token).toBe(REDACTED_VALUE);
     expect(parsed.authorization).toBe(REDACTED_VALUE);
     expect(parsed.msg).toBe(`Blocked leak of ${REDACTED_VALUE} and ${REDACTED_VALUE}`);
+  });
+
+  it('closes Phase 2 security regressions (toJSON redaction, .donaron deletion, non-array extraRules, missing inputs, broken symlink ..)', async () => {
+    // 1. toJSON() secret bypass
+    const chunks: string[] = [];
+    const logger = createLogger({
+      level: 'error',
+      destination: {
+        write(chunk: string): void {
+          chunks.push(chunk);
+        },
+      },
+    });
+    const toJsonSecret = 'sk-ant-secret1234567890abcd';
+    logger.error(
+      {
+        payload: {
+          safe: 1,
+          toJSON() {
+            return { token: toJsonSecret };
+          },
+        },
+      },
+      'msg',
+    );
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).not.toContain(toJsonSecret);
+
+    // 2. Agent fs:delete on .donaron itself & .donaron/config.json
+    const workspace = createTempDir('donaron-sec-wave-');
+    expect(
+      evaluatePolicy({
+        action: 'fs:delete',
+        actorType: 'agent',
+        workspaceRoot: workspace,
+        targetPath: '.donaron',
+      }),
+    ).toMatchObject({ effect: 'DENY', matchedRuleId: 'builtin-protect-donaron-state' });
+    expect(
+      evaluatePolicy({
+        action: 'fs:write',
+        actorType: 'agent',
+        workspaceRoot: workspace,
+        targetPath: '.donaron/config.json',
+      }),
+    ).toMatchObject({ effect: 'DENY', matchedRuleId: 'builtin-protect-donaron-state' });
+
+    // 3. Non-array extraRules fails closed
+    expect(
+      evaluatePolicy({ action: 'net:outbound', actorType: 'agent' }, {
+        length: 1,
+      } as unknown as readonly PolicyRule[]),
+    ).toMatchObject({
+      effect: 'DENY',
+      matchedRuleId: 'builtin-policy-evaluation-error',
+      failedClosed: true,
+    });
+    expect(
+      evaluatePolicy({ action: 'net:outbound', actorType: 'agent' }, {
+        rules: [],
+      } as unknown as readonly PolicyRule[]),
+    ).toMatchObject({
+      effect: 'DENY',
+      matchedRuleId: 'builtin-policy-evaluation-error',
+      failedClosed: true,
+    });
+
+    // 4. Missing targetPath on fs:* and missing command on cmd:exec fail closed
+    expect(
+      evaluatePolicy({
+        action: 'fs:read',
+        actorType: 'agent',
+        workspaceRoot: workspace,
+      }),
+    ).toMatchObject({
+      effect: 'DENY',
+      matchedRuleId: 'builtin-policy-evaluation-error',
+      failedClosed: true,
+    });
+    expect(
+      evaluatePolicy({
+        action: 'cmd:exec',
+        actorType: 'agent',
+      }),
+    ).toMatchObject({
+      effect: 'DENY',
+      matchedRuleId: 'builtin-policy-evaluation-error',
+      failedClosed: true,
+    });
+
+    // 5. Broken symlink collapsing .. across intermediate escaping or protected symlinks
+    const outsideDeep = join(createTempDir('donaron-sec-outside-'), 'a', 'b');
+    const protectedSub = join(workspace, '.donaron', 'runs', 'sub');
+    mkdirSync(join(workspace, 'sub'), { recursive: true });
+    mkdirSync(outsideDeep, { recursive: true });
+    mkdirSync(protectedSub, { recursive: true });
+    symlinkSync(resolve(outsideDeep), join(workspace, 'sub', 'escape'), 'junction');
+    symlinkSync(resolve(protectedSub), join(workspace, 'sub', 'protected'), 'junction');
+    symlinkSync(resolve(workspace, 'p-esc'), join(workspace, 'broken-escape'), 'junction');
+    symlinkSync(resolve(workspace, 'p-prot'), join(workspace, 'broken-protected'), 'junction');
+
+    vi.resetModules();
+    vi.doMock('node:fs', async () => {
+      const actualFs = await vi.importActual<typeof nodeFs>('node:fs');
+      return {
+        ...actualFs,
+        readlinkSync: (targetPath: Parameters<typeof actualFs.readlinkSync>[0]) => {
+          if (typeof targetPath === 'string') {
+            if (basename(targetPath) === 'broken-escape') {
+              return 'sub/escape/../pwn.txt';
+            }
+            if (basename(targetPath) === 'broken-protected') {
+              return 'sub/protected/../run-2/state.json';
+            }
+          }
+          return actualFs.readlinkSync(targetPath);
+        },
+      };
+    });
+
+    try {
+      const { resolveSafePluginPath: safePathCheck, evaluatePolicy: policyCheck } = await import(
+        '../index.js'
+      );
+      const safeRes = safePathCheck(workspace, 'broken-escape', { mustExist: false });
+      expect(safeRes.ok).toBe(false);
+      if (!safeRes.ok) {
+        expect(safeRes.issues[0]?.code).toBe('SYMLINK_ESCAPE');
+      }
+      expect(
+        policyCheck({
+          action: 'fs:write',
+          actorType: 'agent',
+          workspaceRoot: workspace,
+          targetPath: 'broken-escape',
+        }),
+      ).toMatchObject({ effect: 'DENY', matchedRuleId: 'builtin-workspace-boundary' });
+      expect(
+        policyCheck({
+          action: 'fs:write',
+          actorType: 'agent',
+          workspaceRoot: workspace,
+          targetPath: 'broken-protected',
+        }),
+      ).toMatchObject({ effect: 'DENY', matchedRuleId: 'builtin-protect-donaron-state' });
+    } finally {
+      vi.doUnmock('node:fs');
+      vi.resetModules();
+    }
   });
 });

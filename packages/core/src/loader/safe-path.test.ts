@@ -374,4 +374,100 @@ describe('resolveSafePluginPath', () => {
       vi.resetModules();
     }
   });
+
+  it('rejects broken symlink targets whose .. segments traverse through intermediate escaping or root symlinks', async () => {
+    const workspace = createTempDir('donaron-broken-dotdot-');
+    const pluginRoot = join(workspace, 'plugin');
+    const outsideDeep = join(workspace, 'outside', 'a', 'b');
+    const internalDeep = join(pluginRoot, 'real', 'a', 'b');
+    mkdirSync(join(pluginRoot, 'sub'), { recursive: true });
+    mkdirSync(outsideDeep, { recursive: true });
+    mkdirSync(internalDeep, { recursive: true });
+
+    symlinkSync(resolve(outsideDeep), join(pluginRoot, 'sub', 'escape'), 'junction');
+    symlinkSync(
+      resolve(join(workspace, 'outside', 'missing', 'b')),
+      join(pluginRoot, 'sub', 'broken-escape'),
+      'junction',
+    );
+    symlinkSync(resolve(pluginRoot), join(pluginRoot, 'sub', 'to-root'), 'junction');
+    symlinkSync(resolve(internalDeep), join(pluginRoot, 'sub', 'internal'), 'junction');
+
+    symlinkSync(resolve(pluginRoot, 'p-rel'), join(pluginRoot, 'broken-rel-escape'), 'junction');
+    symlinkSync(resolve(pluginRoot, 'p-brk'), join(pluginRoot, 'broken-nested-escape'), 'junction');
+    symlinkSync(
+      resolve(pluginRoot, 'p-anch'),
+      join(pluginRoot, 'broken-anchored-escape'),
+      'junction',
+    );
+    symlinkSync(resolve(pluginRoot, 'p-root'), join(pluginRoot, 'broken-root-dotdot'), 'junction');
+    symlinkSync(
+      resolve(pluginRoot, 'p-int'),
+      join(pluginRoot, 'broken-internal-dotdot'),
+      'junction',
+    );
+
+    const sep = process.platform === 'win32' ? '\\' : '/';
+    const anchoredTarget = `${pluginRoot}${sep}sub${sep}escape${sep}..${sep}pwn.txt`;
+
+    vi.resetModules();
+    vi.doMock('node:fs', async () => {
+      const actualFs = await vi.importActual<typeof nodeFs>('node:fs');
+      return {
+        ...actualFs,
+        readlinkSync: (targetPath: Parameters<typeof actualFs.readlinkSync>[0]) => {
+          if (typeof targetPath === 'string') {
+            const name = basename(targetPath);
+            if (name === 'broken-rel-escape') {
+              return 'sub/escape/../pwn.txt';
+            }
+            if (name === 'broken-nested-escape') {
+              return 'sub/broken-escape/../pwn.txt';
+            }
+            if (name === 'broken-anchored-escape') {
+              return anchoredTarget;
+            }
+            if (name === 'broken-root-dotdot') {
+              return 'sub/to-root/../outside.txt';
+            }
+            if (name === 'broken-internal-dotdot') {
+              return 'sub/internal/../c.txt';
+            }
+          }
+          return actualFs.readlinkSync(targetPath);
+        },
+      };
+    });
+
+    try {
+      const { resolveSafePluginPath: resolveWithDotDotCheck } = await import('./safe-path.js');
+
+      for (const relPath of [
+        'broken-rel-escape',
+        'broken-nested-escape',
+        'broken-anchored-escape',
+        'broken-root-dotdot',
+      ]) {
+        const res = resolveWithDotDotCheck(pluginRoot, relPath, { mustExist: false });
+        expect(res.ok, `Expected SYMLINK_ESCAPE for ${relPath}`).toBe(false);
+        if (!res.ok) {
+          expect(res.issues[0]?.code).toBe('SYMLINK_ESCAPE');
+        }
+      }
+
+      const internalOk = resolveWithDotDotCheck(pluginRoot, 'broken-internal-dotdot', {
+        mustExist: false,
+      });
+      expect(internalOk).toEqual({
+        ok: true,
+        value: {
+          absolutePath: resolve(pluginRoot, 'real', 'a', 'c.txt'),
+          relativePosixPath: 'real/a/c.txt',
+        },
+      });
+    } finally {
+      vi.doUnmock('node:fs');
+      vi.resetModules();
+    }
+  });
 });
