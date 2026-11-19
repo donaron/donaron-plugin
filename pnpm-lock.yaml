@@ -33,6 +33,23 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@24.10.1)
 
+  packages/adapters:
+    dependencies:
+      '@donaron/core':
+        specifier: workspace:*
+        version: link:../core
+      '@donaron/gates':
+        specifier: workspace:*
+        version: link:../gates
+
+  packages/core: {}
+
+  packages/gates:
+    dependencies:
+      '@donaron/core':
+        specifier: workspace:*
+        version: link:../core
+
 packages:
 
   '@ampproject/remapping@2.3.0':

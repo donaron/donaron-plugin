@@ -1,0 +1,22 @@
+{
+  "name": "@donaron/adapters",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DonAron harness adapter contracts and native Antigravity and Claude Code adapters.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@donaron/core": "workspace:*",
+    "@donaron/gates": "workspace:*"
+  }
+}
