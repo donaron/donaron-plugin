@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="plugins/donaron-dev/assets/logo.jpg" alt="DonAron Plugin Logo" width="220" />
+</p>
+
 # DonAron-plugin
 
 Personal multi-harness, multi-stack AI development workflow and fail-closed gate enforcement system for **Antigravity** and **Claude Code** (supporting **Node.js/React**, **Python**, **Go**, **Rust**, **Flutter/Dart**, and custom `.donaron/config.json` stacks).

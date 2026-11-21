@@ -5,6 +5,7 @@
   "name": "donaron-dev",
   "displayName": "DonAron Dev (Multi-Stack)",
   "version": "0.2.0",
+  "logo": "assets/logo.jpg",
   "description": "Personal multi-harness, multi-stack (Node.js/React, Python, Go, Rust, Flutter/Dart, or custom) strict engineering workflow plugin with 5 mandatory gates.",
   "author": {
     "name": "Jay-R Sarino"
