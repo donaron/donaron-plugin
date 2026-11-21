@@ -1,6 +1,6 @@
 # DonAron-plugin
 
-Personal multi-harness AI development workflow and fail-closed gate enforcement system for **Antigravity** and **Claude Code**, targeting **Node.js + React** codebases.
+Personal multi-harness, multi-stack AI development workflow and fail-closed gate enforcement system for **Antigravity** and **Claude Code** (supporting **Node.js/React**, **Python**, **Go**, **Rust**, **Flutter/Dart**, and custom `.donaron/config.json` stacks).
 
 ## Quick Install
 

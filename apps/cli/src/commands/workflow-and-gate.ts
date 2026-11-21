@@ -12,7 +12,10 @@ import {
   evaluateRecordFreshness,
   type GateDecisionRecord,
   type GateId,
+  junitRunnerParser,
+  loadWorkspaceConfig,
   type PretestCheckRunner,
+  vitestRunnerParser,
   WorkflowOrchestrator,
   type WorkflowState,
   type WorkflowTier,
@@ -58,7 +61,9 @@ function normalizeGateId(raw: string): GateId | undefined {
 function createDefaultPretestRunner(): PretestCheckRunner {
   return {
     runTypecheck(workspaceRoot: string) {
-      const proc = spawnSync('pnpm run typecheck', {
+      const cfgRes = loadWorkspaceConfig(workspaceRoot);
+      const cmd = cfgRes.ok ? cfgRes.value.typecheckCommand : 'pnpm run typecheck';
+      const proc = spawnSync(cmd, {
         cwd: workspaceRoot,
         encoding: 'utf8',
         shell: true,
@@ -70,7 +75,9 @@ function createDefaultPretestRunner(): PretestCheckRunner {
       };
     },
     runLint(workspaceRoot: string) {
-      const proc = spawnSync('pnpm run lint', {
+      const cfgRes = loadWorkspaceConfig(workspaceRoot);
+      const cmd = cfgRes.ok ? cfgRes.value.lintCommand : 'pnpm run lint';
+      const proc = spawnSync(cmd, {
         cwd: workspaceRoot,
         encoding: 'utf8',
         shell: true,
@@ -415,11 +422,27 @@ export function handleGateCommand(
         });
       } else if (gateId === 'GATE_04') {
         const reqPackages = context.requiredPackages ?? getStringArrayFlag(parsed, 'packages');
+        const cfgRes = loadWorkspaceConfig(cwd);
+        const cfg = cfgRes.ok ? cfgRes.value : undefined;
         decision = evaluateGate04Testing({
           workspaceRoot: cwd,
           runId,
           store: orchestrator.store,
           ...(context.testRun !== undefined ? { testRun: context.testRun } : {}),
+          ...(cfg !== undefined
+            ? {
+                parser: cfg.testResultsFormat === 'junit' ? junitRunnerParser : vitestRunnerParser,
+                testResultsPath: cfg.testResultsPath,
+                coverageFormat: cfg.coverageFormat,
+                coverageSummaryPath: cfg.coveragePath,
+                thresholds: {
+                  lines: cfg.minimumCoveragePct,
+                  statements: cfg.minimumCoveragePct,
+                  functions: cfg.minimumCoveragePct,
+                  branches: cfg.minimumCoveragePct,
+                },
+              }
+            : {}),
           ...(reqPackages.length > 0 ? { requiredPackages: reqPackages } : {}),
           allowSkippedTests: getBooleanFlag(parsed, 'allow-skipped'),
         });

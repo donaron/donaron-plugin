@@ -111,12 +111,12 @@ A naive repository hash causes an infinite stale-evidence loop: writing gate evi
 - **Dependency Audit Parser (`parseDependencyAuditJson`):** Parses npm/pnpm audit JSON (`metadata.vulnerabilities` or `advisories` map). Fails closed (`FAIL`) on malformed JSON or any `critical`/`high` vulnerability (`moderate`/`low` vulnerabilities are logged as non-blocking findings). Returns `BLOCKED` if no audit was executed and no `offlineWaiverReason` was supplied.
 - **Pinned OWASP Checklists:**
   - Requires fresh (`codeHash`-matching) review citing `OWASP-Top-10:2021` (`PINNED_OWASP_TOP_10_VERSION`) with non-empty `scope` and `limitations`.
-  - When `detectAiApplication(workspaceRoot)` or `forceAiChecklist` is `true` (detecting `openai`, `@anthropic-ai/sdk`, `@google/genai`, `ai`, `@ai-sdk/*`, `langchain`, etc. in `package.json`), additionally requires `OWASP-LLM-Top-10:2025` (`PINNED_OWASP_LLM_TOP_10_VERSION`).
+  - When `detectAiApplication(workspaceRoot)` or `forceAiChecklist` is `true` (detecting AI SDKs such as `openai`, `anthropic`, `@anthropic-ai/sdk`, `@google/genai`, `google-generativeai`, `ai`, `@ai-sdk/*`, `langchain`, `llama-index`, `async-openai`, `rig-core`, etc. across `package.json`, `requirements.txt`, `pyproject.toml`, `pubspec.yaml`, `Cargo.toml`, and `go.mod`), additionally requires `OWASP-LLM-Top-10:2025` (`PINNED_OWASP_LLM_TOP_10_VERSION`).
 
 ### Gate 04 — Testing & Per-Package Coverage (`evaluateGate04Testing`)
 
-- Parses test execution results via `TestRunnerParser` (default `vitestRunnerParser` reading `coverage/test-results.json` or an explicit `testRun`). Fails closed (`FAIL`) if `totalTests <= 0`, `failedTests > 0`, or `skippedTests > 0` (when `allowSkippedTests` is not enabled).
-- Parses Istanbul/Vitest `coverage/coverage-summary.json`:
+- Parses test execution results via `TestRunnerParser` (`vitestRunnerParser` for Vitest JSON or `junitRunnerParser` for standard JUnit XML from `pytest`, `go test`, `cargo test`, `flutter test`, Maven/Gradle, etc., configured via `.donaron/config.json` or auto-detected). Fails closed (`FAIL`) if `totalTests <= 0`, `failedTests > 0`, or `skippedTests > 0` (when `allowSkippedTests` is not enabled).
+- Parses Istanbul/Vitest `coverage/coverage-summary.json` or standard `coverage/lcov.info` (via `parseLcovToSummaryMap`):
   - Enforces aggregate `total` `lines`, `statements`, `functions`, and `branches` ≥ `DEFAULT_COVERAGE_THRESHOLDS` (70% across all four metrics).
   - **Per-Package Monorepo Enforcement (`requiredPackages`):** For each required package prefix (e.g., `packages/core`, `packages/gates`), aggregates `covered / total` across all file entries under `<pkgPrefix>/src/` and fails closed if any package has 0 matched files or drops below 70% on any metric.
 

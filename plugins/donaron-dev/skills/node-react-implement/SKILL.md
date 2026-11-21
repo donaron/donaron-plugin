@@ -14,9 +14,10 @@ completionCriteria:
   - Zero TypeScript errors, zero ESLint errors, and independent Gate 02 review recorded
 references:
   - references/node-react-patterns.md
-version: '0.1.0'
+  - references/stack-commands.md
+version: '0.2.0'
 ---
 
-# Node.js + React Implementation
+# Feature Implementation (Multi-Stack)
 
-Implement each scoped task via TDD (RED -> GREEN -> REFACTOR). Consult [Node + React patterns](references/node-react-patterns.md) for ESM, React hook, and accessibility conventions, then run `donaron gate run 02`.
+Implement each scoped task via TDD (RED -> GREEN -> REFACTOR). Consult [stack commands](references/stack-commands.md) and [Node + React patterns](references/node-react-patterns.md), then run `donaron gate run 02`.

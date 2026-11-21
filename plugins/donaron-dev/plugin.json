@@ -3,9 +3,9 @@
   "manifestVersion": "1",
   "id": "donaron-dev",
   "name": "donaron-dev",
-  "displayName": "DonAron Dev (Node.js + React)",
-  "version": "0.1.0",
-  "description": "Personal multi-harness Node.js + React strict engineering workflow plugin with 5 mandatory gates, progressive skills, and specialized 15-agent roster.",
+  "displayName": "DonAron Dev (Multi-Stack)",
+  "version": "0.2.0",
+  "description": "Personal multi-harness, multi-stack (Node.js/React, Python, Go, Rust, Flutter/Dart, or custom) strict engineering workflow plugin with 5 mandatory gates.",
   "author": {
     "name": "Jay-R Sarino"
   },
