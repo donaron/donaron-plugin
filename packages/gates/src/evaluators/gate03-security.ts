@@ -222,6 +222,39 @@ function packageJsonHasAiSdk(pkgJsonPath: string): boolean {
   }
 }
 
+const AI_ECOSYSTEM_MARKERS = [
+  'requirements.txt',
+  'pyproject.toml',
+  'pubspec.yaml',
+  'Cargo.toml',
+  'go.mod',
+] as const;
+
+const AI_TEXT_SIGNATURES = [
+  /\bopenai\b/i,
+  /\banthropic\b/i,
+  /\bgoogle[_-]generativeai\b/i,
+  /\bgoogle-genai\b/i,
+  /\bgoogle_generative_ai\b/i,
+  /\blangchain\b/i,
+  /\bllamaindex\b/i,
+  /\basync-openai\b/i,
+  /\bgo-openai\b/i,
+  /\bdart_openai\b/i,
+] as const;
+
+function manifestTextHasAiSdk(filePath: string): boolean {
+  if (!existsSync(filePath)) {
+    return false;
+  }
+  try {
+    const raw = readFileSync(filePath, 'utf8');
+    return AI_TEXT_SIGNATURES.some((re) => re.test(raw));
+  } catch {
+    return false;
+  }
+}
+
 export function detectAiApplication(workspaceRoot: string): boolean {
   const configPath = join(workspaceRoot, '.donaron', 'config.json');
   if (existsSync(configPath)) {
@@ -237,6 +270,12 @@ export function detectAiApplication(workspaceRoot: string): boolean {
 
   if (packageJsonHasAiSdk(join(workspaceRoot, 'package.json'))) {
     return true;
+  }
+
+  for (const marker of AI_ECOSYSTEM_MARKERS) {
+    if (manifestTextHasAiSdk(join(workspaceRoot, marker))) {
+      return true;
+    }
   }
 
   for (const container of ['packages', 'apps']) {

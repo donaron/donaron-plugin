@@ -105,6 +105,68 @@ export const vitestRunnerParser: TestRunnerParser = {
   },
 };
 
+export const junitRunnerParser: TestRunnerParser = {
+  name: 'junit',
+  parseTestResults(rawXml: string): ValidationResult<ParsedTestRun> {
+    const suiteMatches = [...rawXml.matchAll(/<testsuite\b([^>]*)>/gi)];
+    if (suiteMatches.length === 0) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: 'TEST_RESULTS_INVALID_JUNIT',
+            path: 'testResults',
+            message: 'JUnit XML output does not contain any <testsuite> elements.',
+          },
+        ],
+      };
+    }
+
+    let totalTests = 0;
+    let failedTests = 0;
+    let skippedTests = 0;
+    let foundTestsAttr = false;
+
+    for (const match of suiteMatches) {
+      const attrs = match[1] ?? '';
+      const readAttr = (name: string): number => {
+        const m = new RegExp(`\\b${name}\\s*=\\s*["'](\\d+)["']`, 'i').exec(attrs);
+        return m?.[1] !== undefined ? Number.parseInt(m[1], 10) : 0;
+      };
+      if (/\btests\s*=\s*["']\d+["']/i.test(attrs)) {
+        foundTestsAttr = true;
+      }
+      totalTests += readAttr('tests');
+      failedTests += readAttr('failures') + readAttr('errors');
+      skippedTests += readAttr('skipped');
+    }
+
+    if (!foundTestsAttr) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: 'TEST_RESULTS_MISSING_COUNTS',
+            path: 'testResults',
+            message: 'JUnit <testsuite> elements are missing the "tests" attribute.',
+          },
+        ],
+      };
+    }
+
+    const passedTests = Math.max(0, totalTests - failedTests - skippedTests);
+    return {
+      ok: true,
+      value: {
+        totalTests,
+        passedTests,
+        failedTests,
+        skippedTests,
+      },
+    };
+  },
+};
+
 export interface Gate04Input {
   readonly workspaceRoot: string;
   readonly runId: string;
@@ -112,6 +174,7 @@ export interface Gate04Input {
   readonly testResultsPath?: string;
   readonly testRun?: ParsedTestRun;
   readonly coverageSummaryPath?: string;
+  readonly coverageFormat?: 'istanbul-summary' | 'lcov';
   readonly thresholds?: CoverageThresholds;
   readonly requiredPackages?: readonly string[];
   readonly allowSkippedTests?: boolean;
@@ -154,6 +217,90 @@ function isCoverageFileSummary(val: unknown): val is CoverageFileSummary {
     isCoverageMetricEntry(obj.functions) &&
     isCoverageMetricEntry(obj.branches)
   );
+}
+
+function toMetricEntry(total: number, covered: number): CoverageMetricEntry {
+  return {
+    total,
+    covered,
+    pct: total === 0 ? 100 : Number(((100 * covered) / total).toFixed(2)),
+  };
+}
+
+export function parseLcovToSummaryMap(rawLcov: string): Record<string, unknown> | null {
+  const lines = rawLcov.split(/\r?\n/);
+  const summaryMap: Record<string, CoverageFileSummary> = {};
+  let currentFile: string | undefined;
+  let lf = 0;
+  let lh = 0;
+  let fnf = 0;
+  let fnh = 0;
+  let brf = 0;
+  let brh = 0;
+  let hasRecord = false;
+
+  let totalLines = 0;
+  let coveredLines = 0;
+  let totalFuncs = 0;
+  let coveredFuncs = 0;
+  let totalBranches = 0;
+  let coveredBranches = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.startsWith('SF:')) {
+      currentFile = line.slice(3).trim().replaceAll('\\', '/');
+      lf = 0;
+      lh = 0;
+      fnf = 0;
+      fnh = 0;
+      brf = 0;
+      brh = 0;
+    } else if (line.startsWith('LF:')) {
+      lf = Number.parseInt(line.slice(3), 10) || 0;
+    } else if (line.startsWith('LH:')) {
+      lh = Number.parseInt(line.slice(3), 10) || 0;
+    } else if (line.startsWith('FNF:')) {
+      fnf = Number.parseInt(line.slice(4), 10) || 0;
+    } else if (line.startsWith('FNH:')) {
+      fnh = Number.parseInt(line.slice(4), 10) || 0;
+    } else if (line.startsWith('BRF:')) {
+      brf = Number.parseInt(line.slice(4), 10) || 0;
+    } else if (line.startsWith('BRH:')) {
+      brh = Number.parseInt(line.slice(4), 10) || 0;
+    } else if (line === 'end_of_record' && currentFile !== undefined) {
+      hasRecord = true;
+      const lineEntry = toMetricEntry(lf, lh);
+      summaryMap[currentFile] = {
+        lines: lineEntry,
+        statements: lineEntry,
+        functions: toMetricEntry(fnf, fnh),
+        branches: toMetricEntry(brf, brh),
+      };
+      totalLines += lf;
+      coveredLines += lh;
+      totalFuncs += fnf;
+      coveredFuncs += fnh;
+      totalBranches += brf;
+      coveredBranches += brh;
+      currentFile = undefined;
+    }
+  }
+
+  if (!hasRecord) {
+    return null;
+  }
+
+  const totalLineEntry = toMetricEntry(totalLines, coveredLines);
+  return {
+    total: {
+      lines: totalLineEntry,
+      statements: totalLineEntry,
+      functions: toMetricEntry(totalFuncs, coveredFuncs),
+      branches: toMetricEntry(totalBranches, coveredBranches),
+    },
+    ...summaryMap,
+  };
 }
 
 export function evaluateGate04Testing(input: Gate04Input): GateDecisionRecord {
@@ -287,7 +434,10 @@ export function evaluateGate04Testing(input: Gate04Input): GateDecisionRecord {
 
   // 2. Coverage summary evaluation (aggregate + per-package)
   const thresholds = input.thresholds ?? DEFAULT_COVERAGE_THRESHOLDS;
-  const covRelPath = input.coverageSummaryPath ?? 'coverage/coverage-summary.json';
+  const covFormat = input.coverageFormat ?? 'istanbul-summary';
+  const covRelPath =
+    input.coverageSummaryPath ??
+    (covFormat === 'lcov' ? 'coverage/lcov.info' : 'coverage/coverage-summary.json');
   const resolvedCov = resolveSafePluginPath(input.workspaceRoot, covRelPath, { mustExist: true });
 
   if (!resolvedCov.ok) {
@@ -306,7 +456,9 @@ export function evaluateGate04Testing(input: Gate04Input): GateDecisionRecord {
     evidenceRefs.push(resolvedCov.value.relativePosixPath);
     let rawSummary: unknown;
     try {
-      rawSummary = JSON.parse(readFileSync(resolvedCov.value.absolutePath, 'utf8'));
+      const rawCovText = readFileSync(resolvedCov.value.absolutePath, 'utf8');
+      rawSummary =
+        covFormat === 'lcov' ? parseLcovToSummaryMap(rawCovText) : JSON.parse(rawCovText);
     } catch {
       rawSummary = null;
     }

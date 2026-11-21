@@ -14,7 +14,7 @@ import {
   PINNED_OWASP_TOP_10_VERSION,
   scanWorkspaceForSecrets,
 } from './gate03-security.js';
-import { evaluateGate04Testing, vitestRunnerParser } from './gate04-testing.js';
+import { evaluateGate04Testing, junitRunnerParser, vitestRunnerParser } from './gate04-testing.js';
 import { evaluateGate05Signoff } from './gate05-signoff.js';
 
 const tempDirs: string[] = [];
@@ -816,5 +816,123 @@ describe('Gate 01 (Planning Document Review) & Gate 02 (Pre-Test Code Review)', 
     expect(g4Below.findings.some((f) => f.ruleId === 'TEST_FAILURES_PRESENT')).toBe(true);
     expect(g4Below.findings.some((f) => f.ruleId === 'COVERAGE_BELOW_THRESHOLD')).toBe(true);
     expect(g4Below.findings.some((f) => f.ruleId === 'PACKAGE_COVERAGE_MISSING')).toBe(true);
+  });
+
+  it('supports JUnit XML test results, LCOV coverage reports, and multi-ecosystem AI SDK detection (Python, Flutter, Rust, Go)', () => {
+    // 1. Multi-ecosystem AI detection
+    const pyDir = createTempWorkspace();
+    writeFileSync(join(pyDir, 'requirements.txt'), 'fastapi==0.115.0\nopenai>=1.50.0\n', 'utf8');
+    expect(detectAiApplication(pyDir)).toBe(true);
+
+    const flutterDir = createTempWorkspace();
+    writeFileSync(
+      join(flutterDir, 'pubspec.yaml'),
+      'name: ai_chat\ndependencies:\n  google_generative_ai: ^0.4.0\n',
+      'utf8',
+    );
+    expect(detectAiApplication(flutterDir)).toBe(true);
+
+    const rustDir = createTempWorkspace();
+    writeFileSync(
+      join(rustDir, 'Cargo.toml'),
+      '[package]\nname="cli"\n[dependencies]\nasync-openai = "0.24"\n',
+      'utf8',
+    );
+    expect(detectAiApplication(rustDir)).toBe(true);
+
+    const goDir = createTempWorkspace();
+    writeFileSync(
+      join(goDir, 'go.mod'),
+      'module example.com/app\nrequire github.com/sashabaranov/go-openai v1.30.0\n',
+      'utf8',
+    );
+    expect(detectAiApplication(goDir)).toBe(true);
+
+    // 2. JUnit XML parser
+    const parsedJunit = junitRunnerParser.parseTestResults(
+      '<?xml version="1.0" encoding="UTF-8"?>\n<testsuites><testsuite name="pytest" tests="12" failures="1" errors="0" skipped="2"></testsuite></testsuites>',
+    );
+    expect(parsedJunit).toEqual({
+      ok: true,
+      value: {
+        totalTests: 12,
+        passedTests: 9,
+        failedTests: 1,
+        skippedTests: 2,
+      },
+    });
+    expect(junitRunnerParser.parseTestResults('<not-junit />').ok).toBe(false);
+
+    // 3. Gate 04 with JUnit XML + LCOV (lcov.info)
+    const root = createTempWorkspace();
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    mkdirSync(join(root, 'coverage'), { recursive: true });
+    writeFileSync(join(root, 'docs', 'plan.md'), COMPLETE_PLAN_MD, 'utf8');
+    writeFileSync(
+      join(root, 'coverage', 'junit.xml'),
+      '<testsuite name="pytest" tests="10" failures="0" errors="0" skipped="0" />',
+      'utf8',
+    );
+    writeFileSync(
+      join(root, 'coverage', 'lcov.info'),
+      [
+        'TN:',
+        'SF:src/service.py',
+        'FNF:4',
+        'FNH:4',
+        'LF:20',
+        'LH:18',
+        'BRF:10',
+        'BRH:8',
+        'end_of_record',
+        'SF:src/routes.py',
+        'FNF:2',
+        'FNH:2',
+        'LF:10',
+        'LH:8',
+        'BRF:4',
+        'BRH:3',
+        'end_of_record',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const store = new EvidenceStore(root);
+    store.initRun({
+      runId: 'run-lcov-1',
+      tier: 'strict',
+      taskDescription: 'Python LCOV Gate 04 test',
+      planFiles: ['docs/plan.md'],
+      actorId: 'u',
+    });
+
+    const passLcov = evaluateGate04Testing({
+      workspaceRoot: root,
+      runId: 'run-lcov-1',
+      store,
+      parser: junitRunnerParser,
+      testResultsPath: 'coverage/junit.xml',
+      coverageFormat: 'lcov',
+      coverageSummaryPath: 'coverage/lcov.info',
+    });
+    expect(passLcov.decision).toBe('PASS');
+
+    // Low LCOV coverage (<70%) fails closed
+    writeFileSync(
+      join(root, 'coverage', 'lcov.info'),
+      ['SF:src/service.py', 'FNF:10', 'FNH:5', 'LF:20', 'LH:10', 'end_of_record'].join('\n'),
+      'utf8',
+    );
+    const failLcov = evaluateGate04Testing({
+      workspaceRoot: root,
+      runId: 'run-lcov-1',
+      store,
+      parser: junitRunnerParser,
+      testResultsPath: 'coverage/junit.xml',
+      coverageFormat: 'lcov',
+      coverageSummaryPath: 'coverage/lcov.info',
+    });
+    expect(failLcov.decision).toBe('FAIL');
+    expect(failLcov.findings.some((f) => f.ruleId === 'COVERAGE_BELOW_THRESHOLD')).toBe(true);
   });
 });

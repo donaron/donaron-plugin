@@ -62,11 +62,22 @@ export {
 } from './evaluators/gate03-security.js';
 
 export {
+  type CoverageFormat,
+  detectWorkspaceStack,
+  loadWorkspaceConfig,
+  type TestResultsFormat,
+  type WorkspaceStack,
+  type WorkspaceStackConfig,
+} from './config/workspace-config.js';
+
+export {
   type CoverageThresholds,
   DEFAULT_COVERAGE_THRESHOLDS,
   evaluateGate04Testing,
   type Gate04Input,
+  junitRunnerParser,
   type ParsedTestRun,
+  parseLcovToSummaryMap,
   type TestRunnerParser,
   vitestRunnerParser,
 } from './evaluators/gate04-testing.js';
