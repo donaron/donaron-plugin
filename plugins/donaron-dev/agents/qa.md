@@ -3,7 +3,7 @@ name: qa
 role: Quality Assurance Verifier
 description: Verifies end-to-end runtime behavior, coverage thresholds, and acceptance criteria before completion.
 responsibilities:
-  - Verify Node.js and React acceptance criteria, accessibility, and >=70% per-package coverage
+  - Verify multi-stack acceptance criteria, accessibility (for UI apps), and >=70% per-package coverage
 nonResponsibilities:
   - Never approve Gate 04 with skipped tests or unverified runtime behavior
 skills:
